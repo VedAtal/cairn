@@ -3,7 +3,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/venv PATH="/venv/bin:$PATH"
 WORKDIR /app
 
-COPY pyproject.toml uv.lock* README.md ./
+COPY pyproject.toml uv.lock* README.md LICENSE ./
 RUN uv sync --no-install-project --no-dev
 
 COPY src ./src
