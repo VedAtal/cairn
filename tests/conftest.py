@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -109,7 +109,7 @@ async def outcome(call: Awaitable[Any]) -> str:
 
 
 @asynccontextmanager
-async def open_world(url: str) -> AsyncIterator[World]:
+async def open_world(url: str) -> AsyncGenerator[World]:
     await asyncio.to_thread(migrate.upgrade, url)
     engine = make_engine(url)
     try:
@@ -195,7 +195,7 @@ def cookie_name_for(app: Any) -> str:
 
 
 @asynccontextmanager
-async def ui_app(settings: Any, port: int | None, base_url: str) -> AsyncIterator[UI]:
+async def ui_app(settings: Any, port: int | None, base_url: str) -> AsyncGenerator[UI]:
     import httpx
 
     from cairn.app.build import build_app

@@ -5,7 +5,7 @@ import os
 import socket
 import subprocess
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,7 +46,7 @@ class Api:
 
 
 @asynccontextmanager
-async def mcp_session(key: str, base: str = SERVER) -> AsyncIterator[ClientSession]:
+async def mcp_session(key: str, base: str = SERVER) -> AsyncGenerator[ClientSession]:
     client = httpx2.AsyncClient(headers={"Authorization": f"Bearer {key}"}, timeout=30)
     async with streamable_http_client(f"{base}/mcp", http_client=client) as streams, \
             ClientSession(streams[0], streams[1]) as session:

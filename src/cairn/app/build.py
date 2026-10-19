@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 
 import structlog
@@ -50,7 +50,7 @@ def build_app(settings: Settings | None = None, port: int | None = None) -> Fast
     mcp = build_mcp(lambda: federation)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         await asyncio.to_thread(migrate.upgrade, settings.db.migrate_url or settings.database_url)
         async with engine.begin() as conn:
             if local:
