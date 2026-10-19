@@ -179,4 +179,5 @@ async def search_page(request: Request, q: str = "", types: str = "", store: str
     groups: dict[str, list[HitOut]] = {}
     for hit in res.hits:
         groups.setdefault(hit.node_ref, []).append(hit)
-    return render(request, "search.html", groups=list(groups.values()), unreachable=res.unreachable, **ctx)
+    return render(request, "search.html", groups=list(groups.values()), nodes=res.nodes, common_only=res.common_only,
+                  unreachable=res.unreachable, **ctx)

@@ -370,7 +370,7 @@ async def refresh_searchable(conn: AsyncConnection, project_id: int, path: str) 
 
 
 async def move(conn: AsyncConnection, scope: Scope, kind: str, item_id: int, target_node: int | None,
-               target_project: int | None) -> None:
+               target_project: int | None, across: bool = False) -> None:
     user = scope.principal.user_id
     target = await get_node(conn, scope, target_node) if target_node else None
     if target is not None:
@@ -383,26 +383,64 @@ async def move(conn: AsyncConnection, scope: Scope, kind: str, item_id: int, tar
         entry, node = await get_entry(conn, scope, item_id, lock=True)
         await _guard(conn, scope, node, entry)
         _live(node)
-        if target.project_id != node.project_id:
-            raise WriteError("moving across projects isn't supported yet")
+        project_id = _crossing(scope, node.project_id, target.project_id, across)
         await conn.execute(update(entries).where(entries.c.id == item_id).values(node_id=target.id))
         await _log(conn, node.project_id, f"e{item_id}", "move", user, f"to n{target.id}")
+        if project_id != node.project_id:
+            await _rehome(conn, node.project_id, project_id, [], [item_id])
+            if entry.archived_at is None:
+                await conn.execute(update(entries).where(entries.c.id == item_id).values(is_searchable=True))
+                await _apply_df(conn, project_id, _delta(_entry_tokens(entry._mapping), +1))
+            await _log(conn, project_id, f"e{item_id}", "move", user, f"from n{node.id}")
         return
     node = await get_node(conn, scope, item_id, lock=True)
     await _guard(conn, scope, node, subtree=True)
     _live(node)
-    project_id = target.project_id if target else (target_project or node.project_id)
-    if project_id != node.project_id:
-        raise WriteError("moving across projects isn't supported yet")
-    if target and (target.path == node.path or target.path.startswith(node.path + "/")):
+    if target_project and not target:
+        scope.require_write(target_project)
+    project_id = _crossing(scope, node.project_id, target.project_id if target else (target_project or node.project_id),
+                           across)
+    if target and target.project_id == node.project_id and (target.path == node.path
+                                                            or target.path.startswith(node.path + "/")):
         raise WriteError("can't move a node into its own subtree")
     new_path = f"{target.path}/{node.slug}" if target else node.slug
-    await _reparent(conn, node, target.id if target else None, new_path, (target.depth + 1) if target else 1)
+    moved = await _reparent(conn, node, target.id if target else None, new_path, (target.depth + 1) if target else 1,
+                            project_id)
+    if project_id != node.project_id:
+        held = (await conn.execute(select(entries.c.id).where(entries.c.node_id.in_(moved)))).scalars().all()
+        await _rehome(conn, node.project_id, project_id, moved, list(held))
+        await _log(conn, node.project_id, f"n{item_id}", "move", user, f"to another project: {new_path}")
     await refresh_searchable(conn, project_id, new_path)
     await _log(conn, project_id, f"n{item_id}", "move", user, f"to {new_path}")
 
 
-async def _reparent(conn: AsyncConnection, node: Row[Any], parent_id: int | None, new_path: str, depth: int) -> None:
+def _crossing(scope: Scope, source: int, target: int, across: bool) -> int:
+    if source != target:
+        if not across:
+            raise WriteError("moving across projects is an admin op: admin move")
+        for pid in (source, target):
+            scope.require_team_admin(scope.project_team[pid])
+    return target
+
+
+async def _rehome(conn: AsyncConnection, source: int, target: int, node_ids: list[int], entry_ids: list[int]) -> None:
+    rows = (await conn.execute(select(entries).where(entries.c.id.in_(entry_ids), entries.c.is_searchable))).mappings()
+    deltas: Counter[str] = Counter()
+    for e in rows:
+        deltas.update(_delta(_entry_tokens(e), -1))
+    await _apply_df(conn, source, deltas)
+    # Searchability is recomputed in the target project, which adds the entries' terms there.
+    await conn.execute(update(entries).where(entries.c.id.in_(entry_ids)).values(project_id=target,
+                                                                                  is_searchable=False))
+    if node_ids:
+        await conn.execute(update(nodes).where(nodes.c.id.in_(node_ids)).values(is_searchable=False))
+    owned = ((links.c.from_kind == "e") & links.c.from_id.in_(entry_ids)) | (
+        (links.c.from_kind == "n") & links.c.from_id.in_(node_ids))
+    await conn.execute(update(links).where(owned).values(project_id=target))
+
+
+async def _reparent(conn: AsyncConnection, node: Row[Any], parent_id: int | None, new_path: str, depth: int,
+                    project_id: int) -> list[int]:
     subtree = (await conn.execute(select(nodes).where(
         nodes.c.project_id == node.project_id,
         (nodes.c.path == node.path) | nodes.c.path.startswith(f"{node.path}/", autoescape=True),
@@ -410,18 +448,19 @@ async def _reparent(conn: AsyncConnection, node: Row[Any], parent_id: int | None
     shift = depth - node.depth
     if max(n.depth for n in subtree) + shift > MAX_DEPTH:
         raise WriteError(f"nodes nest at most {MAX_DEPTH} levels")
-    clash = await conn.execute(select(nodes.c.id).where(nodes.c.project_id == node.project_id,
+    clash = await conn.execute(select(nodes.c.id).where(nodes.c.project_id == project_id,
                                                         nodes.c.path == new_path, nodes.c.id != node.id))
     if clash.first():
         raise WriteError(f"a node already exists at {new_path}", "conflict")
     for n in subtree:
         path = new_path + n.path[len(node.path):]
         an_desc = analyzed_text(n.summary, path.replace("/", " "))
-        values: dict[str, Any] = {"path": path, "depth": n.depth + shift, "an_desc": an_desc}
+        values: dict[str, Any] = {"path": path, "depth": n.depth + shift, "an_desc": an_desc, "project_id": project_id}
         if n.id == node.id:
             values["parent_id"] = parent_id
         await conn.execute(update(nodes).where(nodes.c.id == n.id).values(**values))
         await _fts(conn, "nodes", n.id, {"an_head": n.an_head, "an_desc": an_desc})
+    return [n.id for n in subtree]
 
 
 async def create_node(conn: AsyncConnection, scope: Scope, project_id: int | None, parent_id: int | None,

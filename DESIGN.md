@@ -137,7 +137,7 @@ Rows have a `bigint` identity plus a `uid` (UUIDv7) used as a cross-check in res
   with no override.
 - **`me` is reserved** for the local store.
 - **Paths work too.** `<store>:<team>/<project>/<slug>/…` is accepted wherever a node or project ref is. It resolves
-  through current and former paths, and the canonical ref is echoed back.
+  through current paths in projects the caller can see, and the canonical ref is echoed back.
 - **Slugs** are `[a-z0-9_]{1,48}`, not a Windows reserved name, and unique per parent.
 
 ### 4.2 Tables
@@ -278,11 +278,14 @@ The agent sends 1–8 **concepts**, each one idea written as variants, e.g.
 `["stripe|webhook", "retry|backoff|idempotency"]`. Results rank by **how many distinct concepts an entry matches**.
 
 1. **Plan (Python).** Analyze the variants and look up `term_df` over the readable projects.
-   - A variant is **generic** (half credit) when its df is above `G = min(5000, max(50, ⌈0.25·N_readable⌉))`.
-     Otherwise it is **driving**.
-   - A 30k-postings budget demotes the most common terms to "scored in Python only". This caps heap visits, but GIN
-     posting-list reads still scale with instance-wide df until benchmarked (§6.6).
-   - If nothing is driving, the planner switches to AND mode and tells the agent to add more specific terms.
+   - A variant is **generic** (half credit) when its estimated matches are above
+     `G = min(5000, max(50, ⌈0.25·N_readable⌉))`. Alternatives (such as the unstemmed form) add up, and chunks that
+     must all match take the minimum. A variant that matches something and isn't generic is **driving**.
+   - A 30k-postings budget (the sum of df over a variant's tokens) demotes the most common generic variants to
+     "scored in Python only", as long as something still drives. This caps heap visits, but GIN posting-list reads
+     still scale with instance-wide df until benchmarked (§6.6).
+   - If nothing is driving, the planner switches to AND mode: candidates must cover every concept, and the result
+     tells the agent to add a more specific term.
 2. **Candidates (SQL, one shape on both engines).** One GIN or FTS5 scan per (concept, field group), with the access,
    `types` and `within` filters in the `WHERE`. A CTE aggregates these to per-entry coverage, with `LIMIT 200`. Node
    matches add coverage to their entries.
@@ -302,7 +305,9 @@ The agent sends 1–8 **concepts**, each one idea written as variants, e.g.
    | Entry body | 10 |
 
    Credit per match: exact 1.0, substring expansion 0.7, generic 0.5.
-4. **Group.** Up to 12 hits across up to 6 nodes, plus up to 3 node-only matches marked "read outline".
+4. **Group.** Up to 12 hits across up to 6 nodes, plus up to 3 node-only matches marked "read outline". A node-only
+   match is a node whose own title, keywords, path or summary cover at least as many concepts as the top hit, and
+   which isn't already shown. There are none when `types` is set.
 
 ### 6.3 Substring matching
 
@@ -903,16 +908,15 @@ Superseded by your later decisions, where these reports differ:
 
 ## 19. Implementation status (2026-10-19)
 
-Built: everything in §3–§10 and §13 except the items below, about 3,700 lines of source. Tests: unit, parity on
+Built: everything in §3–§10 and §13 except the items below, about 5,700 lines of source (without migrations). Tests: unit, parity on
 SQLite and Postgres (the oracle is the two engines agreeing, plus golden expectations), and integration against the
 compose stack (hosted server on Postgres, MCP client, local federation, CLI). `make test-all` runs everything.
 
 **Phase 2 so far:** the web UI with passwords (set-password links, no SMTP), `cairn ui` tickets, links and the
 graph view; git mode (§11, with the gaps it lists); write quotas and idempotency, the audit log, hourly
-maintenance, login throttling, `purge_entry` and `cairn git purge`, the hello-proof and the resume-hash dedup.
-
-**Still to come:** path refs, the postings budget and AND-mode fallback, node-only search matches, and cross-project
-moves.
+maintenance, login throttling, `purge_entry` and `cairn git purge`, the hello-proof and the resume-hash dedup; path
+refs, the postings budget and AND-mode fallback, node-only search matches, and cross-project moves (`admin move`, for
+admins of both teams).
 Cairn.app is phase 3.
 
 **Deviations from the design:**
@@ -923,6 +927,7 @@ Cairn.app is phase 3.
   without checking adjacency. A single-word query also carries its unstemmed form, so `apns` finds `APNs`.
 - **The local server's Host/Origin checks** live in Cairn's own middleware; the MCP SDK's DNS-rebinding protection is
   turned off in both modes, since hosted auth is the bearer token.
+- **Path refs** resolve current paths only; nodes don't keep `former_paths`.
 - **Maintenance** uses one `meta` row instead of a `schedules` table, and there is no search log yet.
 - **Passwords** use stdlib scrypt instead of argon2id, which would be a new dependency.
 - **Bootstrap** can use a known `CAIRN_SETUP_TOKEN` (for automated deploys and tests) instead of the logged one.

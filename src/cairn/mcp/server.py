@@ -96,7 +96,8 @@ def build_mcp(federation: Callable[[], Federation]) -> MCPServer:
     @mcp.tool(annotations=READ, structured_output=False, description=(
         "Read Cairn items by ref, up to 20 per call; batch every ref you need. An entry ref (acme:e812) returns its "
         "full body, type, keywords, revision and verified date. A node ref (acme:n41) or project ref (acme:p3) returns "
-        "an outline: summary, children and entry headlines. history=true adds earlier revisions of entries."))
+        "an outline: summary, children and entry headlines; a path (acme:team/project/node/child) works for both. "
+        "history=true adds earlier revisions of entries."))
     async def get(ctx: Context, refs: list[str], history: bool = False) -> str:
         async def go(p: Principal) -> str:
             return render.get(await federation().get(p, GetRequest(refs=refs, history=history)))
@@ -147,7 +148,8 @@ def build_mcp(federation: Callable[[], Federation]) -> MCPServer:
         "unarchive_project (project); set_project_member (project, email, role write|read|null); members (team or "
         "project); create_key (name, read_only, no_admin); revoke_key (prefix); flag / unflag (ref) — flagged "
         "entries and nodes are injected into every reader's sessions; purge_entry (ref) deletes an entry and its "
-        "history for good, only for leaked secrets or legal requests; audit (before)."))
+        "history for good, only for leaked secrets or legal requests; audit (before); move (ref, node or project) "
+        "moves an entry or node subtree into another project."))
     async def admin(ctx: Context, op: str, store: str | None = None, args: dict[str, Any] | None = None) -> str:
         async def go(p: Principal) -> str:
             req = AdminRequest(op=op, store=store, args=args or {})

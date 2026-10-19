@@ -21,7 +21,7 @@ from .access import AccessError, NotFound, Principal, Scope
 from .accounts import hash_token, password_link
 from .refs import Ref, RefError, parse
 from .write import _SLUG as SLUG
-from .write import WriteError, _check_secrets, _log, clean, get_entry, get_node, now, purge_entry
+from .write import WriteError, _check_secrets, _log, clean, get_entry, get_node, move, now, purge_entry
 
 KEY_PREFIX = "cairn_pat_"
 
@@ -164,7 +164,7 @@ async def _team_role(conn: AsyncConnection, team_id: int, user_id: int) -> str |
 
 OPS = ("whoami", "users", "create_user", "set_user_active", "create_team", "archive_team", "unarchive_team",
        "set_team_member", "create_project", "archive_project", "unarchive_project", "set_project_member", "members",
-       "keys", "create_key", "revoke_key", "flag", "unflag", "password_link", "teams", "purge_entry", "audit")
+       "keys", "create_key", "revoke_key", "flag", "unflag", "password_link", "teams", "purge_entry", "audit", "move")
 READS = ("whoami", "users", "teams", "keys", "members", "audit")
 
 
@@ -226,6 +226,12 @@ async def _run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: d
             recent = recent.where(audit_log.c.id < before)
         return {"audit": [{"id": r.id, "at": str(r.at)[:19], "by": r.email, "op": r.op, "detail": r.detail}
                           for r in await conn.execute(recent)]}
+    if op == "move":
+        ref = _ref(alias, _arg(args, "ref"), "en")
+        to_node = _ref(alias, args["node"], "n").id if args.get("node") else None
+        to_project = _ref(alias, args["project"], "p").id if args.get("project") else None
+        await move(conn, scope, ref.kind, ref.id, to_node, to_project, across=True)
+        return {"ref": str(ref), "moved": True}
     if op == "purge_entry":
         ref = _ref(alias, _arg(args, "ref"), "e")
         await purge_entry(conn, scope, ref.id)

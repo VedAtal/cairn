@@ -251,7 +251,7 @@ async def test_move_within_project(org: Org) -> None:
     child = await w.node(org.writer, org.node, "child")
     await w.node(org.writer, payments, "billing")
     for fields, result in [
-        ({"ref": ref, "node": elsewhere}, "invalid"),  # across projects: not supported yet
+        ({"ref": ref, "node": elsewhere}, "invalid"),  # across projects: an admin op
         ({"ref": org.node, "node": elsewhere}, "invalid"),
         ({"ref": org.node, "node": child}, "invalid"),  # into its own subtree
         ({"ref": org.node, "node": payments}, "conflict"),  # payments/billing exists

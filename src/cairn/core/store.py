@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import secrets
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 import httpx
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
@@ -29,6 +31,7 @@ from ..models import (
     MapResponse,
     MapStore,
     NodeFields,
+    NodeHitOut,
     Revision,
     SearchRequest,
     SearchResponse,
@@ -38,10 +41,13 @@ from ..models import (
 from . import admin, inject, views, write
 from .access import NotFound, Principal, Scope, scope_for
 from .refs import Ref, RefError, parse
-from .search import Hit, parse_concepts, search, sort_key
+from .search import NODE_LIMIT, Hit, parse_concepts, search
 from .write import Links
 
 MAX_CHILDREN = 30
+_PATH_REF = re.compile(r"^([a-z][a-z0-9-]{0,31}):([a-z0-9_]{1,48})/([a-z0-9_]{1,48})((?:/[a-z0-9_]{1,48})*)$")
+REF_KEYS = {"refs", "root", "within", "ref", "node", "project", "to", "unlink"}
+M = TypeVar("M", bound=BaseModel)
 
 
 class StoreUnavailable(Exception):
@@ -74,6 +80,27 @@ class SqlStore:
         self.engine, self.alias = engine, alias
         self.on_change: Callable[[], None] = lambda: None
 
+    async def _paths(self, conn: AsyncConnection, scope: Scope, req: M) -> M:
+        data = req.model_dump()
+        fixed = await self._resolve(conn, scope, data)
+        return req if fixed == data else type(req).model_validate(fixed)
+
+    async def _resolve(self, conn: AsyncConnection, scope: Scope, value: Any, is_ref: bool = False) -> Any:
+        if isinstance(value, dict):
+            return {k: await self._resolve(conn, scope, v, k in REF_KEYS) for k, v in value.items()}
+        if isinstance(value, list):
+            return [await self._resolve(conn, scope, v, is_ref) for v in value]
+        if not is_ref or not isinstance(value, str) or not (m := _PATH_REF.match(value.strip())) or m[1] != self.alias:
+            return value
+        pid = (await conn.execute(select(projects.c.id).join(teams, teams.c.id == projects.c.team_id).where(
+            teams.c.slug == m[2], projects.c.slug == m[3],
+            projects.c.id.in_(scope.readable) | projects.c.team_id.in_(scope.admin_teams)))).scalar_one_or_none()
+        if pid is None or not m[4]:
+            return value if pid is None else f"{self.alias}:p{pid}"
+        node = (await conn.execute(select(nodes.c.id).where(nodes.c.project_id == pid,
+                                                            nodes.c.path == m[4][1:]))).scalar_one_or_none()
+        return f"{self.alias}:n{node}" if node else value
+
     def _ref(self, ref: str, kinds: str) -> Ref:
         parsed = parse(ref, kinds)
         if parsed.store != self.alias:
@@ -93,9 +120,14 @@ class SqlStore:
     async def search(self, p: Principal, req: SearchRequest) -> SearchResponse:
         async with self.engine.connect() as conn:
             scope = await scope_for(conn, p)
-            hits = await search(conn, parse_concepts(req.concepts), sorted(scope.readable), types=list(req.types or []),
-                                within=await self._within(conn, scope, req.within), limit=req.limit)
-        return SearchResponse(hits=[self._hit(h) for h in hits])
+            req = await self._paths(conn, scope, req)
+            found = await search(conn, parse_concepts(req.concepts), sorted(scope.readable),
+                                 types=list(req.types or []), within=await self._within(conn, scope, req.within),
+                                 limit=req.limit)
+        nodes_out = [NodeHitOut(store=self.alias, ref=f"{self.alias}:n{n.id}", title=n.title, summary=n.summary,
+                                path=n.path, team=n.team, project=n.project, matched=n.matched, features=n.features)
+                     for n in found.nodes]
+        return SearchResponse(hits=[self._hit(h) for h in found.hits], nodes=nodes_out, common_only=found.common_only)
 
     def _hit(self, h: Hit) -> HitOut:
         return HitOut(store=self.alias, ref=f"{self.alias}:e{h.id}", type=h.type, title=h.title,
@@ -106,6 +138,7 @@ class SqlStore:
     async def get(self, p: Principal, req: GetRequest) -> GetResponse:
         async with self.engine.connect() as conn:
             scope = await scope_for(conn, p)
+            req = await self._paths(conn, scope, req)
             items = []
             for ref in req.refs:
                 try:
@@ -166,6 +199,7 @@ class SqlStore:
     async def map(self, p: Principal, req: MapRequest) -> MapResponse:
         async with self.engine.connect() as conn:
             scope = await scope_for(conn, p)
+            req = await self._paths(conn, scope, req)
             email = (await conn.execute(select(users.c.email).where(users.c.id == p.user_id))).scalar_one()
             root = self._ref(req.root, "np") if req.root else None
             pids = sorted(scope.readable)
@@ -214,6 +248,7 @@ class SqlStore:
     async def write(self, p: Principal, req: WriteRequest) -> WriteResponse:
         async with self.engine.begin() as conn:
             scope = await scope_for(conn, p)
+            req = await self._paths(conn, scope, req)
             done = req.op_id and (await conn.execute(select(write_ops.c.result).where(
                 write_ops.c.user_id == p.user_id, write_ops.c.op_id == req.op_id))).scalar_one_or_none()
             if done:
@@ -278,6 +313,7 @@ class SqlStore:
     async def admin(self, p: Principal, req: AdminRequest) -> AdminResponse:
         async with self.engine.begin() as conn:
             scope = await scope_for(conn, p)
+            req = await self._paths(conn, scope, req)
             result = await admin.run(conn, scope, self.alias, req.op, req.args)
         self.on_change()
         return AdminResponse(result=result)
@@ -297,13 +333,20 @@ class SqlStore:
 
     async def graph(self, p: Principal, project: str) -> Graph:
         async with self.engine.connect() as conn:
-            return await views.graph(conn, await scope_for(conn, p), self.alias, self._ref(project, "p").id)
+            scope = await scope_for(conn, p)
+            ref = self._ref(await self._resolve(conn, scope, project, True), "p")
+            return await views.graph(conn, scope, self.alias, ref.id)
 
     def _links(self, fields: EntryFields | NodeFields) -> Links:
         if fields.links is None and fields.unlink is None:
             return None
         return ([(r.kind, r.id, link.reason) for link in fields.links or [] for r in [self._ref(link.to, "en")]],
                 [(r.kind, r.id) for r in (self._ref(ref, "en") for ref in fields.unlink or [])])
+
+
+def _merge_key(features: tuple[int, ...], order: int, ref: str) -> tuple[int, ...]:
+    c, e, s, v, depth = features
+    return (-c, -e, -s, -v, -depth, order, -int(ref.rsplit(":", 1)[1][1:]))
 
 
 def _keep(node: MapNode, flt: str) -> bool:
@@ -397,18 +440,21 @@ class Federation:
         targets = [s for s in self.stores if not only or s.alias in only]
         results = await asyncio.gather(*(s.search(p, req) for s in targets), return_exceptions=True)
         hits: list[tuple[tuple[int, ...], HitOut]] = []
-        unreachable = []
+        found: list[tuple[tuple[int, ...], NodeHitOut]] = []
+        unreachable, common_only = [], False
         for order, (store, res) in enumerate(zip(targets, results, strict=True)):
             if isinstance(res, BaseException):
                 if len(targets) == 1 or not isinstance(res, StoreUnavailable | RemoteError):
                     raise res
                 unreachable.append(_why(store, res))
                 continue
-            for h in res.hits:
-                c, e, s_, v, depth = h.features
-                hits.append(((-c, -e, -s_, -v, -depth, order, -int(h.ref.rsplit(":e", 1)[1])), h))
+            hits += [(_merge_key(h.features, order, h.ref), h) for h in res.hits]
+            found += [(_merge_key(n.features, order, n.ref), n) for n in res.nodes]
+            common_only |= res.common_only
         hits.sort(key=lambda pair: pair[0])
-        return SearchResponse(hits=[h for _, h in hits[: req.limit]], unreachable=unreachable)
+        found.sort(key=lambda pair: pair[0])
+        return SearchResponse(hits=[h for _, h in hits[: req.limit]], nodes=[n for _, n in found[:NODE_LIMIT]],
+                              common_only=common_only, unreachable=unreachable)
 
     async def get(self, p: Principal, req: GetRequest) -> GetResponse:
         wanted = [_canonical(r) for r in req.refs]
@@ -487,4 +533,4 @@ def _canonical(ref: str) -> str:
         return ref
 
 
-__all__ = ["Federation", "RemoteError", "RemoteStore", "SqlStore", "Store", "StoreUnavailable", "sort_key"]
+__all__ = ["Federation", "RemoteError", "RemoteStore", "SqlStore", "Store", "StoreUnavailable"]

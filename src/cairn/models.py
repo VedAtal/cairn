@@ -32,8 +32,22 @@ class HitOut(BaseModel):
     features: tuple[int, int, int, int, int]
 
 
+class NodeHitOut(BaseModel):
+    store: str
+    ref: str
+    title: str
+    summary: str
+    path: str
+    team: str
+    project: str
+    matched: list[str]
+    features: tuple[int, int, int, int, int]
+
+
 class SearchResponse(BaseModel):
     hits: list[HitOut]
+    nodes: list[NodeHitOut] = []
+    common_only: bool = False
     unreachable: list[str] = []
 
 

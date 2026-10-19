@@ -11,7 +11,9 @@ from ..db.schema import entries, nodes, projects, teams, term_df, vocab
 from .analyzer import Variant, expansion, variant
 
 CAND_LIMIT = 200
+NODE_LIMIT = 3
 G_CAP = 5000
+POSTINGS_BUDGET = 30_000
 MIN_NEEDLE = 4
 MAX_EXPANSIONS = 16
 
@@ -32,6 +34,10 @@ _WEIGHTS = {"entry": (40, 10), "node": (30, 20)}
 class Concept:
     variants: list[Variant]
     generic: set[str] = field(default_factory=set)
+    scored_only: set[str] = field(default_factory=set)
+
+    def scanned(self) -> list[Variant]:
+        return [v for v in self.variants if v.raw not in self.scored_only]
 
 
 @dataclass
@@ -48,6 +54,25 @@ class Hit:
     team: str
     matched: list[str]
     features: tuple[int, int, int, int, int]
+
+
+@dataclass
+class NodeHit:
+    id: int
+    title: str
+    summary: str
+    path: str
+    project: str
+    team: str
+    matched: list[str]
+    features: tuple[int, int, int, int, int]
+
+
+@dataclass
+class Result:
+    hits: list[Hit]
+    nodes: list[NodeHit]
+    common_only: bool
 
 
 def parse_concepts(raw: list[str]) -> list[Concept]:
@@ -88,7 +113,7 @@ async def _expand(conn: AsyncConnection, needle: str, pids: list[int]) -> list[s
     return list(rows.scalars())
 
 
-async def plan(conn: AsyncConnection, concepts: list[Concept], pids: list[int]) -> None:
+async def plan(conn: AsyncConnection, concepts: list[Concept], pids: list[int]) -> bool:
     terms = {t for c in concepts for v in c.variants for t in v.tokens}
     df = await doc_frequencies(conn, terms, pids)
     total = (await conn.execute(
@@ -104,7 +129,24 @@ async def plan(conn: AsyncConnection, concepts: list[Concept], pids: list[int]) 
                 concept.variants += [expansion(t) for t in await _expand(conn, needle, pids) if t not in known]
         new_terms = {t for v in concept.variants for t in v.tokens} - df.keys()
         df |= await doc_frequencies(conn, new_terms, pids)
-        concept.generic = {v.raw for v in concept.variants if v.tokens and all(df.get(t, 0) > g for t in v.tokens)}
+        concept.generic = {v.raw for v in concept.variants if _matches(v, df) > g}
+    driving = any(_matches(v, df) > 0 and v.raw not in c.generic for c in concepts for v in c.variants)
+    # Postings, not matches: the index reads every token's list, even for alternatives that rarely match.
+    common = sorted(((sum(df.get(t, 0) for t in v.tokens), i, v.raw) for i, c in enumerate(concepts)
+                     for v in c.variants if v.raw in c.generic), reverse=True)
+    if common and not driving:
+        return True
+    total = sum(n for n, _, _ in common)
+    for n, i, raw in common:  # common variants still score in Python; they just stop driving the scan
+        if total <= POSTINGS_BUDGET:
+            break
+        concepts[i].scored_only.add(raw)
+        total -= n
+    return False
+
+
+def _matches(v: Variant, df: dict[str, int]) -> int:
+    return min((sum(min((df.get(t, 0) for t in alt), default=0) for alt in chunk) for chunk in v.chunks), default=0)
 
 
 def _pg_query(variants: list[Variant]) -> str:
@@ -128,20 +170,32 @@ def _branches(kind: str, dialect: str, concepts: list[Concept], params: dict[str
     cols = f"{alias}.id AS entry_id, {alias}.node_id" if kind == "entry" else f"{alias}.id AS node_id"
     out = []
     for i, concept in enumerate(concepts):
+        variants = concept.scanned()
+        if not variants:
+            continue
         for j, weight in enumerate(_WEIGHTS[kind]):
             name = f"q_{kind}_{i}_{j}"
             if dialect == "postgresql":
                 table, exprs = _PG_LEAVES[kind]
-                params[name] = _pg_query(concept.variants)
+                params[name] = _pg_query(variants)
                 match_sql = f"FROM {table} {alias} WHERE {_TSV.format(exprs[j])} @@ CAST(:{name} AS tsquery)"
             else:
                 table, columns = _FTS_LEAVES[kind]
-                params[name] = _fts_query(concept.variants, columns[j])
+                params[name] = _fts_query(variants, columns[j])
                 match_sql = (f"FROM {table}_fts f JOIN {table} {alias} ON {alias}.id = f.rowid "
                              f"WHERE {table}_fts MATCH :{name}")
-            where = f" AND {alias}.is_searchable AND {alias}.project_id IN :pids" + (filters if kind == "entry" else "")
+            where = f" AND {alias}.is_searchable AND {alias}.project_id IN :pids" + filters
             out.append(f"SELECT {cols}, {i} AS c, {weight} AS w {match_sql}{where}")
     return out
+
+
+def _subtree(within: tuple[str, int, str | None], path_col: str, params: dict[str, Any]) -> str:
+    kind, params["wp"], wpath = within
+    if kind != "n":
+        return ""
+    escaped = (wpath or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    params["wpath"], params["wlike"] = wpath, f"{escaped}/%"
+    return f" AND ({path_col} = :wpath OR {path_col} LIKE :wlike ESCAPE '\\')"
 
 
 async def candidates(
@@ -153,6 +207,7 @@ async def candidates(
     within: tuple[str, int, str | None] | None = None,
     exclude: list[int] | None = None,
     limit: int = CAND_LIMIT,
+    match_all: bool = False,
 ) -> list[int]:
     if not concepts or not pids:
         return []
@@ -164,14 +219,9 @@ async def candidates(
         params["types"] = types
         binds.append(bindparam("types", expanding=True))
     if within:
-        kind, wp, wpath = within
-        params["wp"] = wp
         filters += " AND e.project_id = :wp"
-        if kind == "n":
-            escaped = (wpath or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            params["wpath"], params["wlike"] = wpath, f"{escaped}/%"
-            filters += (" AND e.node_id IN (SELECT id FROM nodes WHERE project_id = :wp"
-                        " AND (path = :wpath OR path LIKE :wlike ESCAPE '\\'))")
+        if path := _subtree(within, "path", params):
+            filters += f" AND e.node_id IN (SELECT id FROM nodes WHERE project_id = :wp{path})"
     if exclude:
         filters += " AND e.id NOT IN :exclude"
         params["exclude"] = exclude
@@ -179,22 +229,40 @@ async def candidates(
     dialect = conn.dialect.name
     em = " UNION ALL ".join(_branches("entry", dialect, concepts, params, filters))
     nm = " UNION ALL ".join(_branches("node", dialect, concepts, params, ""))
+    having = f"HAVING COUNT(*) = {len(concepts)}" if match_all else ""
     sql = f"""
         WITH em AS ({em}), nm AS ({nm}),
         cand AS (SELECT DISTINCT entry_id, node_id FROM em),
         hits AS (SELECT entry_id, c, w, 1 AS own FROM em
                  UNION ALL SELECT cand.entry_id, nm.c, nm.w, 0 FROM cand JOIN nm ON nm.node_id = cand.node_id),
         pc AS (SELECT entry_id, c, MAX(w) AS w, MAX(own) AS own FROM hits GROUP BY entry_id, c)
-        SELECT entry_id FROM pc GROUP BY entry_id
+        SELECT entry_id FROM pc GROUP BY entry_id {having}
         ORDER BY COUNT(*) DESC, SUM(own) DESC, SUM(w) DESC, entry_id DESC LIMIT {int(limit)}"""
     rows = await conn.execute(text(sql).bindparams(*binds), params)
     return [int(r) for r in rows.scalars()]
 
 
+async def node_candidates(conn: AsyncConnection, concepts: list[Concept], pids: list[int],
+                          within: tuple[str, int, str | None] | None) -> list[int]:
+    if not concepts or not pids:
+        return []
+    params: dict[str, Any] = {"pids": pids}
+    filters = f" AND n.project_id = :wp{_subtree(within, 'n.path', params)}" if within else ""
+    nm = " UNION ALL ".join(_branches("node", conn.dialect.name, concepts, params, filters))
+    sql = f"""WITH nm AS ({nm}) SELECT node_id FROM nm GROUP BY node_id
+              ORDER BY COUNT(DISTINCT c) DESC, MAX(w) DESC, node_id DESC LIMIT 20"""
+    rows = await conn.execute(text(sql).bindparams(bindparam("pids", expanding=True)), params)
+    return [int(r) for r in rows.scalars()]
+
+
 def rank_one(concepts: list[Concept], head: set[str], body: set[str], node_head: set[str], node_desc: set[str]
              ) -> tuple[int, int, int, int, list[str]] | None:
-    fields = ((ENTRY_FIELDS[0], head, True), (ENTRY_FIELDS[1], body, True),
-              (NODE_FIELDS[0], node_head, False), (NODE_FIELDS[1], node_desc, False))
+    return _coverage(concepts, ((ENTRY_FIELDS[0], head, True), (ENTRY_FIELDS[1], body, True),
+                                (NODE_FIELDS[0], node_head, False), (NODE_FIELDS[1], node_desc, False)))
+
+
+def _coverage(concepts: list[Concept], fields: tuple[tuple[tuple[str, int], set[str], bool], ...]
+              ) -> tuple[int, int, int, int, list[str]] | None:
     c = e = s = 0
     variants_hit: set[tuple[int, str]] = set()
     matched: list[str] = []
@@ -231,11 +299,18 @@ async def search(
     types: list[str] | None = None,
     within: tuple[str, int, str | None] | None = None,
     limit: int = 12,
-) -> list[Hit]:
-    await plan(conn, concepts, pids)
-    ids = await candidates(conn, concepts, pids, types=types, within=within)
-    if not ids:
-        return []
+) -> Result:
+    common_only = await plan(conn, concepts, pids)
+    ids = await candidates(conn, concepts, pids, types=types, within=within, match_all=common_only)
+    hits = await _entry_hits(conn, concepts, pids, ids) if ids else []
+    hits.sort(key=sort_key)
+    hits = hits[:limit]
+    found = [] if types else await _node_hits(conn, concepts, pids, within, {h.node_id for h in hits},
+                                               hits[0].features[0] if hits else 1)
+    return Result(hits, found, common_only)
+
+
+async def _entry_hits(conn: AsyncConnection, concepts: list[Concept], pids: list[int], ids: list[int]) -> list[Hit]:
     rows = await conn.execute(
         select(
             entries.c.id, entries.c.type, entries.c.title, entries.c.verified_at, entries.c.an_head, entries.c.an_body,
@@ -259,11 +334,33 @@ async def search(
                 node_id=r["node_id"], node_title=r["node_title"], node_summary=r["summary"], node_path=r["path"],
                 project=r["project"], team=r["team"], matched=matched, features=(c, e, s, v, r["depth"]),
             ))
-    hits.sort(key=sort_key)
-    return hits[:limit]
+    return hits
 
 
-def sort_key(hit: Hit, store_order: int = 0) -> tuple[int, ...]:
+async def _node_hits(conn: AsyncConnection, concepts: list[Concept], pids: list[int],
+                     within: tuple[str, int, str | None] | None, shown: set[int], best: int) -> list[NodeHit]:
+    ids = [i for i in await node_candidates(conn, concepts, pids, within) if i not in shown]
+    if not ids:
+        return []
+    rows = await conn.execute(
+        select(nodes.c.id, nodes.c.title, nodes.c.summary, nodes.c.path, nodes.c.depth, nodes.c.an_head,
+               nodes.c.an_desc, projects.c.slug.label("project"), teams.c.slug.label("team"))
+        .join(projects, projects.c.id == nodes.c.project_id).join(teams, teams.c.id == projects.c.team_id)
+        .where(nodes.c.id.in_(ids), nodes.c.project_id.in_(pids)))
+    found = []
+    for r in rows.mappings():
+        ranked = _coverage(concepts, ((NODE_FIELDS[0], set(r["an_head"].split()), True),
+                                      (NODE_FIELDS[1], set(r["an_desc"].split()), True)))
+        if ranked and ranked[0] >= best:  # a node that covers less than the entries shown adds nothing
+            c, e, s, v, matched = ranked
+            found.append(NodeHit(id=r["id"], title=r["title"], summary=r["summary"], path=r["path"],
+                                 project=r["project"], team=r["team"], matched=matched,
+                                 features=(c, e, s, v, r["depth"])))
+    found.sort(key=sort_key)
+    return found[:NODE_LIMIT]
+
+
+def sort_key(hit: Hit | NodeHit, store_order: int = 0) -> tuple[int, ...]:
     c, e, s, v, depth = hit.features
     return (-c, -e, -s, -v, -depth, store_order, -hit.id)
 

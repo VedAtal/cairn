@@ -34,7 +34,20 @@
   </ul>
 </section>
 {% endfor %}
-{% if q and not groups and not error %}
+{% if nodes %}
+<section class="group">
+  <div class="muted">Nodes that match on their own</div>
+  <ul class="list">
+    {% for n in nodes %}
+    <li><a href="/ui/r/{{ n.ref }}">{{ n.title }}</a> <span class="muted small">{{ n.team }}/{{ n.project }}</span>
+      <div class="small muted"><code>{{ n.ref }}</code> · {{ n.summary }}</div></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% if common_only %}<p class="muted small">Every term here is common, so results had to match all of them: add a
+  more specific term.</p>{% endif %}
+{% if q and not groups and not nodes and not error %}
 <p class="muted">No matches. An empty result is normal: try other variants of each concept, or fewer concepts.</p>
 {% endif %}
 {% if unreachable %}<p class="error small">Unreachable: {{ unreachable|join(", ") }}</p>{% endif %}

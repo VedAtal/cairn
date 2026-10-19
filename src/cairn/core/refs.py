@@ -25,6 +25,8 @@ class Ref:
 
 def parse(ref: str, kinds: str = "enp") -> Ref:
     match = _REF.match(ref.strip())
+    if not match and "/" in ref.partition(":")[2]:
+        raise RefError(f"nothing at {ref!r}, or it isn't visible to you")
     if not match or match.group(2) not in kinds:
         expected = "/".join(f"<store>:{k}<id>" for k in kinds)
         raise RefError(f"bad ref {ref!r}: expected {expected}, e.g. me:{kinds[0]}12")

@@ -28,9 +28,14 @@ def search(resp: SearchResponse) -> str:
         for hit in hits:
             lines.append(f"  {hit.ref}  {hit.type:<13} {hit.title}")
             lines.append(f"      matched: {', '.join(hit.matched)} · verified {hit.verified_at}")
-    if not lines:
+    if resp.nodes:
+        lines.append("Nodes that match on their own (read the outline with get):")
+        lines += [f"  {n.ref}  {n.title} — {n.summary[:120]}" for n in resp.nodes]
+    if resp.common_only:
+        lines.append("Every term here is common, so results had to match all of them: add a more specific term.")
+    if not resp.hits and not resp.nodes:
         lines.append("No matches in Cairn. An empty result is a normal answer: reformulate once at most, then proceed.")
-    else:
+    if resp.hits:
         refs = [h.ref for g in groups.values() for h in g]
         more = ", …" if len(refs) > 5 else ""
         lines.append(f"Next: get(refs=[{', '.join(refs[:5])}{more}]) for the entries you need.")
