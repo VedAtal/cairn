@@ -25,7 +25,18 @@ cairn remote add https://cairn.acme.dev   # prompts for the key
 
 ## Host it
 
-One image plus Postgres 16-18 (with `pg_trgm`). Migrations run at startup.
+One image plus Postgres 16-18 (with `pg_trgm`). Migrations run at startup. CI publishes the image for amd64 and
+arm64: `ghcr.io/vedatal/cairn:latest` tracks `main`, and `vX.Y.Z` tags publish `X.Y.Z` and `X.Y`.
+
+```yaml
+services:
+  cairn:
+    image: ghcr.io/vedatal/cairn:latest
+    ports: ["8000:8000"]
+    environment:
+      CAIRN_DB__URL: postgresql://cairn:secret@db.example.com:5432/cairn
+      CAIRN_STORE_ALIAS: acme
+```
 
 | Variable | |
 |---|---|
