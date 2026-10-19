@@ -6,6 +6,8 @@ build-backend = "uv_build"
 name = "cairn"
 version = "0.1.0"
 description = "Cairn: a shared knowledge store for AI coding agents."
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

@@ -76,3 +76,7 @@ make test        # integration + Postgres parity tests against the compose stack
 make test-all    # both
 make server      # hosted instance on :8000;  make logs / make down
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
