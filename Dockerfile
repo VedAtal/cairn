@@ -10,6 +10,7 @@ COPY src ./src
 RUN uv sync --no-dev
 
 FROM base AS test
+RUN apt-get update -q && apt-get install -y -q --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 RUN uv sync
 COPY tests ./tests
 CMD ["pytest", "-q"]

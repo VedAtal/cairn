@@ -82,6 +82,7 @@ async def test_team_admins_manage_only_their_team(org: Org) -> None:
         ("set_team_member", {"team": "ops", "email": "otto@acme.dev", "role": "member"}, "not_found"),
         ("set_project_member", {"project": ops_project, "email": "otto@acme.dev", "role": "read"}, "not_found"),
         ("archive_project", {"project": ops_project}, "not_found"),
+        ("create_project", {"team": "eng", "slug": "keys", "name": "token=Zx9Qm2Lk7Vb4Np8Rt6"}, "secret"),
         ("create_project", {"team": "eng", "slug": "mine"}, "ok"),
         ("set_team_member", {"team": "eng", "email": "otto@acme.dev", "role": "admin"}, "admin_required"),
         ("set_team_member", {"team": "eng", "email": "otto@acme.dev", "role": "member"}, "ok"),

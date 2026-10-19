@@ -8,6 +8,7 @@ from .. import __version__
 from ..core import accounts, admin
 from ..core.access import Principal
 from ..core.inject import render
+from ..core.write import WriteError
 from ..models import (
     AdminRequest,
     AdminResponse,
@@ -111,4 +112,13 @@ async def status(request: Request) -> dict[str, Any]:
     state = request.app.state
     remote = state.settings.remote()
     return {"store": state.settings.alias, "mode": state.settings.mode, "version": __version__,
-            "remote": remote.url if remote else None}
+            "remote": remote.url if remote else None,
+            "git": state.git.status() if state.git else {"enabled": False}}
+
+
+@router.post("/git/push")
+async def git_push(request: Request) -> dict[str, Any]:
+    _principal(request)
+    if not request.app.state.git:
+        raise WriteError("git mode is off; turn it on with cairn git enable")
+    return await request.app.state.git.push_now()  # type: ignore[no-any-return]

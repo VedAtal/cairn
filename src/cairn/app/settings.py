@@ -60,6 +60,12 @@ class Settings(BaseSettings):
             return None
         return RemoteSettings(url=remote["url"], api_key=key, alias=remote.get("alias", "remote"))
 
+    def git(self) -> tuple[bool, str | None]:
+        if self.mode != "local":
+            return False, None
+        found = _toml(self.home_dir / "config.toml").get("git", {})
+        return bool(found.get("enabled")), found.get("remote") or None
+
 
 def _toml(path: Path) -> dict[str, dict[str, str]]:
     return tomllib.loads(path.read_text()) if path.exists() else {}

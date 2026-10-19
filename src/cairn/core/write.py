@@ -63,6 +63,8 @@ def _keywords(values: list[str], limit: int) -> list[str]:
     return out
 
 
+# Three variables per term: one upsert must stay under SQLite's default cap of 32766.
+DF_CHUNK = 5000
 _RANDOMISH = re.compile(r"[A-Za-z0-9+/=_-]{32,}")
 
 
@@ -111,17 +113,17 @@ def validate_node(fields: NodeFields, current: dict[str, Any] | None = None) -> 
 
 
 async def _apply_df(conn: AsyncConnection, project_id: int, deltas: Counter[str]) -> None:
-    """One sorted upsert: separate statements could lock rows out of order and deadlock."""
+    """Sorted upserts: rows locked out of order across transactions could deadlock."""
     changed = sorted(t for t, d in deltas.items() if d)
-    if not changed:
-        return
     insert = pg_insert if conn.dialect.name == "postgresql" else sqlite_insert
-    stmt = insert(term_df).values([{"term": t, "project_id": project_id, "df": deltas[t]} for t in changed])
-    await conn.execute(stmt.on_conflict_do_update(index_elements=["term", "project_id"],
-                                                  set_={"df": term_df.c.df + stmt.excluded.df}))
-    words = [{"term": t} for t in changed if deltas[t] > 0 and not is_opaque(t)]
-    if words:
-        await conn.execute(insert(vocab).values(words).on_conflict_do_nothing())
+    for i in range(0, len(changed), DF_CHUNK):
+        chunk = changed[i : i + DF_CHUNK]
+        stmt = insert(term_df).values([{"term": t, "project_id": project_id, "df": deltas[t]} for t in chunk])
+        await conn.execute(stmt.on_conflict_do_update(index_elements=["term", "project_id"],
+                                                      set_={"df": term_df.c.df + stmt.excluded.df}))
+        words = [{"term": t} for t in chunk if deltas[t] > 0 and not is_opaque(t)]
+        if words:
+            await conn.execute(insert(vocab).values(words).on_conflict_do_nothing())
 
 
 def _delta(tokens: set[str], sign: int) -> Counter[str]:

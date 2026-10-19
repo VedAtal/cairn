@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import structlog
 from fastapi import FastAPI, Request
@@ -22,6 +22,7 @@ from ..db import migrate
 from ..db.engine import make_engine
 from ..mcp.server import build_mcp
 from ..routers import api, health
+from .gitmirror import GitMirror
 from .logging import setup_logging
 from .security import AuthMiddleware, token_matches
 from .settings import Settings
@@ -36,7 +37,12 @@ def build_app(settings: Settings | None = None, port: int | None = None) -> Fast
     if local:
         settings.home_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     engine = make_engine(settings.database_url)
-    stores: list[Store] = [SqlStore(engine, settings.alias)]
+    own = SqlStore(engine, settings.alias)
+    stores: list[Store] = [own]
+    git_on, git_remote = settings.git()
+    git = GitMirror(settings.home_dir / "mirror.git", git_remote, engine) if git_on else None
+    if git:
+        own.on_change = git.changed
     remote = settings.remote()
     if remote:
         stores.append(RemoteStore(remote.url, remote.api_key, remote.alias))
@@ -58,8 +64,15 @@ def build_app(settings: Settings | None = None, port: int | None = None) -> Fast
                     log.warning("no instance admin yet; create one with: cairn remote bootstrap <url> --token <token>",
                                 token=token)
         app.state.ready = True
+        if git:
+            await asyncio.to_thread(git.init)
+            mirroring = asyncio.create_task(git.run())
         async with mcp.session_manager.run():
             yield
+        if git:
+            mirroring.cancel()
+            with suppress(asyncio.CancelledError):
+                await mirroring  # unwind before dispose(): a render may hold the pool's only connection
         for store in stores:
             if isinstance(store, RemoteStore):
                 await store.aclose()
@@ -68,6 +81,7 @@ def build_app(settings: Settings | None = None, port: int | None = None) -> Fast
     app = FastAPI(title="Cairn", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.settings, app.state.engine, app.state.federation, app.state.ready = settings, engine, federation, False
     app.state.local_port = port if local else None
+    app.state.git = git
 
     async def authenticate(token: str) -> Principal | None:
         if local:

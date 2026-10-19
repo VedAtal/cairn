@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import Any, Protocol
 
 import httpx
@@ -70,6 +71,7 @@ class Store(Protocol):
 class SqlStore:
     def __init__(self, engine: AsyncEngine, alias: str) -> None:
         self.engine, self.alias = engine, alias
+        self.on_change: Callable[[], None] = lambda: None
 
     def _ref(self, ref: str, kinds: str) -> Ref:
         parsed = parse(ref, kinds)
@@ -212,11 +214,13 @@ class SqlStore:
         async with self.engine.begin() as conn:
             scope = await scope_for(conn, p)
             try:
-                return await self._write(conn, scope, req)
+                result = await self._write(conn, scope, req)
             except write.WriteError as exc:
                 for d in exc.duplicates:
                     d.ref = f"{self.alias}:{d.ref}"
                 raise
+        self.on_change()
+        return result
 
     async def _write(self, conn: AsyncConnection, scope: Scope, req: WriteRequest) -> WriteResponse:
         distinct = [self._ref(r, "e").id for r in req.distinct_from]
@@ -265,7 +269,9 @@ class SqlStore:
     async def admin(self, p: Principal, req: AdminRequest) -> AdminResponse:
         async with self.engine.begin() as conn:
             scope = await scope_for(conn, p)
-            return AdminResponse(result=await admin.run(conn, scope, self.alias, req.op, req.args))
+            result = await admin.run(conn, scope, self.alias, req.op, req.args)
+        self.on_change()
+        return AdminResponse(result=result)
 
     async def inject(self, p: Principal) -> list[InjectGroup]:
         async with self.engine.connect() as conn:

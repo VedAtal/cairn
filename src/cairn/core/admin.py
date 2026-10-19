@@ -11,7 +11,7 @@ from .access import AccessError, NotFound, Principal, Scope
 from .accounts import hash_token, password_link
 from .refs import Ref, RefError, parse
 from .write import _SLUG as SLUG
-from .write import WriteError, _log, clean, get_entry, get_node, now
+from .write import WriteError, _check_secrets, _log, clean, get_entry, get_node, now
 
 KEY_PREFIX = "cairn_pat_"
 
@@ -107,6 +107,12 @@ def _arg(args: dict[str, Any], name: str, kind: type = str, required: bool = Tru
     if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
         raise WriteError(f"argument {name!r} must be {kind.__name__}")
     return value
+
+
+def _name(args: dict[str, Any], slug: str) -> str:
+    name: str = _arg(args, "name", required=False) or slug
+    _check_secrets(name)  # names are mirrored to git
+    return name
 
 
 async def _team(conn: AsyncConnection, scope: Scope, slug: str) -> Any:
@@ -221,7 +227,7 @@ async def run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: di
         _check_slug(slug)
         if (await conn.execute(select(teams.c.id).where(teams.c.slug == slug))).first():
             raise WriteError(f"team {slug} already exists", "conflict")
-        team_id = (await conn.execute(teams.insert().values(slug=slug, name=_arg(args, "name", required=False) or slug)
+        team_id = (await conn.execute(teams.insert().values(slug=slug, name=_name(args, slug))
                                       .returning(teams.c.id))).scalar_one()
         if admin_email := _arg(args, "admin", required=False):
             await _set_role(conn, team_members, "team_id", team_id, await _user_id(conn, admin_email), "admin",
@@ -253,8 +259,7 @@ async def run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: di
         taken = select(projects.c.id).where(projects.c.team_id == team.id, projects.c.slug == slug)
         if (await conn.execute(taken)).first():
             raise WriteError(f"project {slug} already exists in {team.slug}", "conflict")
-        pid = (await conn.execute(projects.insert().values(team_id=team.id, slug=slug,
-                                                           name=_arg(args, "name", required=False) or slug)
+        pid = (await conn.execute(projects.insert().values(team_id=team.id, slug=slug, name=_name(args, slug))
                                   .returning(projects.c.id))).scalar_one()
         return {"project": f"{alias}:p{pid}"}
     if op in ("archive_project", "unarchive_project"):

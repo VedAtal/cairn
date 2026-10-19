@@ -587,59 +587,63 @@ created it, so a uv Python upgrade could re-prompt (unverified).
 
 ## 11. Git mode (local only)
 
-**Where:**
-
-- A one-way mirror into the bare repo `~/.cairn/mirror.git`, optionally pushed to a private remote.
-- The default location is outside `~/Documents`, `~/Desktop` and iCloud Drive. Those folders would trigger macOS
-  privacy prompts for the launchd job, and `cairn service status` warns if the mirror is configured inside one.
+**Where:** a one-way mirror into the bare repo `~/.cairn/mirror.git` (branch `main`), optionally pushed to a private
+remote. `cairn git enable [--remote URL]` turns it on; `cairn git status`, `push` and `disable` manage it.
 
 **Format:**
 
-- Layout: `<team-slug>/<project-slug>/<node-slug>/…/<type>-e<id>.md`, plus `_node.md`, `_project.md`, `_team.md`.
-  Each node also gets a generated `README.md` that lists its entry titles; restore ignores it.
-- Front matter is one `key: <json value>` per line, in a fixed key order. It holds every non-derived column (all
-  except `an_*` and `is_searchable`): `rev`, `inject`, the `verified_*`, `archived_*`, `origin` and outgoing `links`
-  fields, and `former_paths` on nodes.
-- Archived items stay in the mirror with their `archived_*` fields, so restore is lossless.
-- Moves are pure renames, and a type change renames the file. There is no IAM data in the mirror.
+- `cairn.json` (the format version), `<team>/_team.md`, `<team>/<project>/_project.md`,
+  `<team>/<project>/<node path>/_node.md` and `.../<type>-e<id>.md`.
+- Front matter is one `key: <json value>` per line, in a fixed key order: ids, slugs, titles, keywords, `rev`,
+  `inject`, timestamps, `archive_reason` and outgoing `links`. A node's summary and an entry's body follow it.
+- No `*_by` columns (a local store has one user) and no IAM data. Git history stands in for revisions and the
+  change log.
+- Archived items stay with their `archived_*` fields. Moves are renames, and a type change renames the file.
+- Unchanged data renders byte-for-byte the same.
 
 **Mechanics:**
 
-1. After each DB commit, the worker waits for 2 s of quiet (20 s at most).
-2. It renders the store, re-scans for secrets, diffs against HEAD, and makes one `git fast-import` commit with a
-   `Cairn-Seq` trailer, which marks the last change mirrored.
-3. A secret hit holds back only that file, and the commit records it as held.
-4. Push waits 15 s quiet (2 min at most) and retries with backoff. It never forces, except during `cairn git purge`.
+1. Every write and admin op marks the mirror dirty. The worker waits for 2 s of quiet, then renders the whole store.
+2. If the tree's digest differs from HEAD's `Cairn-Digest` trailer, one `git fast-import` commit replaces the tree.
+3. It pushes right after, never forced (no prompts, 120 s timeout), and retries every 5 min while the push is
+   pending or the mirror is in error.
 
-- A write never waits on git.
-- Failures show in `cairn git status`, the UI and the Mac app.
-- After 24 h of failure, or at once on divergence, a hook `systemMessage` tells you. The model never sees it.
-- Plain `git` runs as a subprocess. `cairn git doctor` runs `git ls-remote` from the server's own environment, which
-  catches an SSH agent socket that only your shell profile sets.
+- A write never waits on git, and a git failure never takes the server down.
+- Secrets never reach the mirror because writes refuse them: entries, nodes, archive reasons, team and project names.
+- State (`ok`, `error`, `diverged`), the last commit and push, and whether a push is pending show in
+  `cairn git status` and `/api/v1/status`.
 
-**Restore:** `cairn restore <repo>`, or `cairn local enable --from-git URL` on a new machine.
+**One store per machine.**
 
-- It rebuilds an **empty** DB only, preserving ids and uids.
-- It sets id sequences past the maximum and continues `change_log` from HEAD's `Cairn-Seq`, so the first flush is a
-  no-op.
-- CI property tests: `render(apply(T)) == T` and `apply(render(DB)) == DB`.
-- Revision bodies older than the current one aren't recovered, unless `--with-history` replays the git log.
+- If a push is rejected as non-fast-forward, the mirror stops as `diverged` and merges nothing. `cairn git push`
+  retries once.
+- A store that never wrote the mirror (a `git_mirror` meta row marks one that has) won't commit over a mirror holding
+  other data. If `cairn.db` is lost, the backup isn't wiped by the empty store that replaces it.
 
-**One store per machine.** If a push is rejected as non-fast-forward, the mirror stops with status `diverged` and
-merges nothing.
+**Restore:** `cairn restore [repo]`, or `cairn local enable --from-git URL` on a new machine. With no repo, it uses
+the machine's own `mirror.git`.
 
-**Leaked secrets:**
-
-1. Rotate the secret.
-2. `admin purge_entry`.
-3. `cairn git purge <ref>`, which rewrites history with filter-repo and `--force-with-lease` after a typed
-   confirmation.
+- It fills an **empty** store only, and refuses if `cairn.db` or its `-wal`/`-shm` files exist. On failure it
+  removes what it built.
+- Team, project, node and entry ids are kept, so refs stay valid. Links get new ids, and their `created_at` is the
+  source item's `updated_at`.
+- Only the current revision of each entry comes back, and the change log starts empty.
+- A URL source becomes the push remote only if it passes the public-repository check.
+- Unit tests check `render(restore(render(DB))) == render(DB)`.
 
 **Remote safety:**
 
-- Public remotes are refused (checked through the GitHub and GitLab APIs; other hosts need `--i-know-its-private`).
+- Public remotes are refused (checked anonymously through the GitHub and GitLab APIs; other hosts need
+  `--i-know-its-private`).
 - URLs containing credentials are refused.
-- gitleaks runs on outgoing commits if installed.
+
+**Not built yet:**
+
+- `cairn git doctor` and `cairn git purge` (a history rewrite after a leaked secret);
+- a hook `systemMessage` on long failure or divergence, and status in the UI and the Mac app;
+- `--with-history` (replaying older revisions from the git log);
+- gitleaks on outgoing commits;
+- a warning when `~/.cairn` sits in a macOS-protected folder.
 
 **Not on remote instances in v2.0.** A git export would bypass project access. Recovery there is the provider's
 point-in-time restore plus a per-team export by admins.
@@ -896,16 +900,18 @@ Superseded by your later decisions, where these reports differ:
 
 ---
 
-## 19. Implementation status (phase 1, 2026-10-19)
+## 19. Implementation status (2026-10-19)
 
 Built: everything in §3–§10 and §13 except the items below, about 3,700 lines of source. Tests: unit, parity on
 SQLite and Postgres (the oracle is the two engines agreeing, plus golden expectations), and integration against the
 compose stack (hosted server on Postgres, MCP client, local federation, CLI). `make test-all` runs everything.
 
-**Deferred to phase 2:** web UI and passwords (the instance admin creates users with the `admin` tool, which returns
-the user's first API key), git mode (§11), quotas and idempotency, the audit log and `schedules`, purge, the
-hello-proof, links, path refs, the resume-hash dedup, the postings budget and AND-mode fallback, node-only search
-matches, and cross-project moves. Cairn.app is phase 3.
+**Phase 2 so far:** the web UI with passwords (set-password links, no SMTP), `cairn ui` tickets, links and the
+graph view; git mode (§11, with the gaps it lists).
+
+**Still to come:** quotas and idempotency, the audit log and `schedules`, purge, the hello-proof, path refs, the
+resume-hash dedup, the postings budget and AND-mode fallback, node-only search matches, and cross-project moves.
+Cairn.app is phase 3.
 
 **Deviations from the design:**
 

@@ -16,7 +16,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
-from . import harness, local
+from . import gitmode, harness, local
 from .config import (
     NETWORK_ERRORS,
     CliError,
@@ -176,8 +176,15 @@ def _restart_local() -> None:
         local.wait_ready(port, 20)
 
 
-def local_enable(port: int | None, service: bool) -> None:
+def local_enable(port: int | None, service: bool, from_git: str | None = None) -> None:
+    if from_git:
+        return restore(from_git, port, service)
     local.enable(port, service)
+    rewire()
+
+
+def restore(source: str | None, port: int | None, service: bool) -> None:
+    gitmode.restore(source, port, service)
     rewire()
 
 
@@ -270,7 +277,8 @@ def _parser() -> argparse.ArgumentParser:
     p = group.add_parser("enable")
     p.add_argument("--port", type=int)
     p.add_argument("--no-service", action="store_true", help="run detached instead of as a login service")
-    p.set_defaults(run=lambda a: local_enable(a.port, not a.no_service))
+    p.add_argument("--from-git", metavar="URL", help="restore the store from a git mirror first")
+    p.set_defaults(run=lambda a: local_enable(a.port, not a.no_service, a.from_git))
     group.add_parser("disable").set_defaults(run=lambda a: local_disable())
 
     group = sub.add_parser("remote", help="the team remote").add_subparsers(dest="action", required=True)
@@ -286,6 +294,20 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--email", required=True)
     p.add_argument("--name")
     p.set_defaults(run=lambda a: remote_bootstrap(a.url, a.token, a.email, a.name))
+
+    group = sub.add_parser("git", help="back up the local store to git").add_subparsers(dest="action", required=True)
+    p = group.add_parser("enable")
+    p.add_argument("--remote", help="a private git URL to push to")
+    p.add_argument("--i-know-its-private", action="store_true", help="skip the public-repository check")
+    p.set_defaults(run=lambda a: gitmode.enable(a.remote, a.i_know_its_private))
+    group.add_parser("disable").set_defaults(run=lambda a: gitmode.disable())
+    group.add_parser("status").set_defaults(run=lambda a: gitmode.status())
+    group.add_parser("push").set_defaults(run=lambda a: gitmode.push())
+    p = sub.add_parser("restore", help="rebuild an empty local store from a git mirror")
+    p.add_argument("source", nargs="?", help="git URL or path; omit to use this machine's ~/.cairn/mirror.git")
+    p.add_argument("--port", type=int)
+    p.add_argument("--no-service", action="store_true")
+    p.set_defaults(run=lambda a: restore(a.source, a.port, not a.no_service))
 
     p = sub.add_parser("auth", help="print the MCP Authorization header (header helper)")
     p.add_argument("what", choices=["header"])
