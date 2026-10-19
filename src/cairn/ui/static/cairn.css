@@ -1,0 +1,54 @@
+:root {
+  --bg: #fbfbfa; --surface: #ffffff; --text: #1c1d1f; --muted: #6b6f76; --line: #e6e6e3; --accent: #3d6b7d;
+  --accent-soft: #e8f0f3; --danger: #b42318; --warn: #8a5a00; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111213; --surface: #18191b; --text: #e6e6e3; --muted: #9a9ea6; --line: #2a2c2f; --accent: #7fb1c4;
+          --accent-soft: #1d2a30; --danger: #f97066; --warn: #fdb022; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+code, .ref { font-family: var(--mono); font-size: 0.88em; }
+h1 { font-size: 1.5rem; margin: 0 0 0.75rem; } h2 { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; }
+.topbar { display: flex; align-items: center; gap: 1rem; padding: 0.6rem 1.25rem; background: var(--surface);
+          border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
+.brand { font-weight: 650; color: var(--text); letter-spacing: 0.01em; }
+.search { flex: 1; max-width: 560px; }
+.search input { width: 100%; }
+nav { display: flex; align-items: center; gap: 0.9rem; margin-left: auto; font-size: 0.92rem; }
+nav a { color: var(--muted); } nav a[aria-current="page"] { color: var(--text); font-weight: 600; }
+nav form { margin: 0; }
+.page { max-width: 1080px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+.narrow { max-width: 380px; margin: 12vh auto; padding: 0 1.25rem; }
+body:has(main.wide) { display: flex; flex-direction: column; height: 100vh; }
+.wide { padding: 0; flex: 1; min-height: 0; }
+input, select, textarea { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line);
+                          border-radius: 6px; padding: 0.45rem 0.6rem; }
+textarea { width: 100%; min-height: 9rem; font-family: var(--mono); font-size: 0.9rem; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+button { font: inherit; cursor: pointer; border-radius: 6px; padding: 0.4rem 0.85rem; border: 1px solid var(--accent);
+         background: var(--accent); color: #fff; }
+button.secondary { background: transparent; color: var(--text); border-color: var(--line); }
+button.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+button.link { background: none; border: none; color: var(--muted); padding: 0; }
+.stack { display: flex; flex-direction: column; gap: 0.8rem; } .stack label { display: flex; flex-direction: column; gap: 0.25rem; }
+.row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.1rem; }
+.list { list-style: none; margin: 0; padding: 0; } .list li { padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
+.list li:last-child { border-bottom: none; }
+table { width: 100%; border-collapse: collapse; font-size: 0.93rem; }
+th, td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 550; font-size: 0.85rem; }
+.muted { color: var(--muted); } .small { font-size: 0.85rem; }
+.error { color: var(--danger); } .ok { color: var(--accent); }
+.badge { display: inline-block; font-size: 0.75rem; padding: 0.05rem 0.45rem; border-radius: 999px;
+         background: var(--accent-soft); color: var(--accent); font-weight: 550; vertical-align: middle; }
+.badge.inject { background: #fff4e5; color: var(--warn); }
+@media (prefers-color-scheme: dark) { .badge.inject { background: #2e2310; } }
+.body { white-space: normal; overflow-wrap: anywhere; }
+.crumbs { color: var(--muted); font-size: 0.88rem; margin-bottom: 0.4rem; }
+.secret { font-family: var(--mono); background: var(--accent-soft); padding: 0.6rem; border-radius: 6px; overflow-wrap: anywhere; }
+@media (max-width: 720px) { .topbar { flex-wrap: wrap; } nav { margin-left: 0; } }

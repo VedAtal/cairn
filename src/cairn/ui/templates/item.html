@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% import "pages_macros.html" as m %}
+{% block title %}{{ (item and item.title) or ref }} · Cairn{% endblock %}
+{% block head %}{{ m.style() }}{% endblock %}
+{% block content %}
+{% if error %}
+<h1><code>{{ ref }}</code></h1>
+<p class="error">{{ error }}</p>
+
+{% elif item.status != "ok" %}
+<h1><code>{{ item.ref }}</code></h1>
+<p class="muted">{{ item.tombstone or "Not found (or not visible to you)." }}</p>
+{% if item.status == "archived" and writer and "inside an archived node" not in item.tombstone %}
+<div class="row"><button hx-post="/ui/r/{{ item.ref }}/unarchive" hx-target="#msg">Unarchive</button></div>
+{% elif "inside an archived node" in (item.tombstone or "") %}
+<p class="small muted">Unarchive the archived node above it to bring this back. <a href="/ui/archived">Archived items</a></p>
+{% endif %}
+<div id="msg"></div>
+
+{% else %}
+{% if project %}
+<div class="crumbs">{% if kind == "p" %}{{ item.ref.split(":")[0] }} · {{ project.team }}
+  {% else %}<a href="/ui/r/{{ project.ref }}">{{ project.team }} / {{ project.name }}</a> /
+  {% if kind == "e" %}<a href="/ui/r/{{ item.node_ref }}">{{ item.path }}</a>{% else %}{{ item.path }}{% endif %}{% endif %}</div>
+{% endif %}
+<h1>{{ item.title }}</h1>
+<div class="meta row">
+  {% if kind == "e" %}<span class="badge">{{ item.type }}</span>{% endif %}
+  {% if item.inject %}<span class="badge inject" title="injected into every session">injected</span>{% endif %}
+  {% if kind == "p" and project %}<span class="badge" title="your role">{{ project.role }}</span>{% endif %}
+  <code>{{ item.ref }}</code>
+  {% if item.rev %}<span>rev {{ item.rev }}</span>{% endif %}
+  {% if item.verified_at %}<span>verified {{ item.verified_at }}</span>{% endif %}
+  {% if kind != "e" and project %}<a href="/ui/graph?project={{ project.ref }}">Graph</a>{% endif %}
+</div>
+
+{% if kind == "e" %}
+{% if item.body %}<div class="card body">{{ item.body|linkrefs }}</div>{% endif %}
+{% if item.keywords %}<p>{% for k in item.keywords %}<span class="kw">{{ k }}</span>{% endfor %}</p>{% endif %}
+{{ m.links(item) }}
+<h2>History</h2>
+<div id="history"><button class="link" hx-get="/ui/r/{{ item.ref }}/history" hx-target="#history">Show revisions</button></div>
+{% if writer %}
+<h2>Actions</h2>
+<div class="acts">
+  <div class="row">
+    <button class="secondary" hx-post="/ui/r/{{ item.ref }}/verify" hx-target="#msg">Mark verified</button>
+    {% if admin %}{{ m.flag_button(item) }}{% endif %}
+  </div>
+  <div id="msg"></div>
+  <details class="act"><summary>Edit</summary>{{ m.entry_form("/ui/r/" ~ item.ref ~ "/edit", types, item) }}</details>
+  {% if project %}
+  <details class="act"><summary hx-get="/ui/r/{{ item.ref }}/move?project={{ project.ref }}&amp;node={{ item.node_ref }}"
+    hx-target="#move" hx-trigger="click once">Move to another node</summary><div id="move"></div></details>
+  {% endif %}
+  {{ m.archive_form(item.ref) }}
+</div>
+{% endif %}
+
+{% elif kind == "n" %}
+{% if item.summary %}<p class="body">{{ item.summary|linkrefs }}</p>{% endif %}
+{% if item.keywords %}<p>{% for k in item.keywords %}<span class="kw">{{ k }}</span>{% endfor %}</p>{% endif %}
+<h2>Children <span class="count">{{ item.children|length }}</span></h2>
+{% if item.children %}
+<ul class="list">
+  {% for c in item.children %}
+  <li><a href="/ui/r/{{ c.ref }}">{{ c.title }}</a>{% if c.summary %}<span class="muted small"> — {{ c.summary }}</span>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% else %}<p class="muted small">No child nodes.</p>{% endif %}
+<h2>Entries <span class="count">{{ item.counts.entries }}</span></h2>
+{% if item.entries %}
+<ul class="list">
+  {% for e in item.entries %}
+  <li><span class="badge">{{ e.type }}</span> <a href="/ui/r/{{ e.ref }}">{{ e.title }}</a> <code class="muted">{{ e.ref }}</code></li>
+  {% endfor %}
+</ul>
+{% if item.counts.entries > item.entries|length %}
+<p class="muted small">{{ item.counts.entries - item.entries|length }} more; <a href="/ui/search">search</a> to find them.</p>
+{% endif %}
+{% else %}<p class="muted small">No entries here yet.</p>{% endif %}
+{{ m.links(item) }}
+{% if writer %}
+<h2>Actions</h2>
+<div class="acts">
+  {% if admin %}<div class="row">{{ m.flag_button(item) }}</div>{% endif %}
+  <div id="msg"></div>
+  <details class="act"><summary>Add entry</summary>{{ m.entry_form("/ui/r/" ~ item.ref ~ "/add", types) }}</details>
+  <details class="act"><summary>New child node</summary>{{ m.node_form("/ui/r/" ~ item.ref ~ "/node") }}</details>
+  <details class="act"><summary>Edit node</summary>{{ m.node_form("/ui/r/" ~ item.ref ~ "/update-node", item) }}</details>
+  {{ m.archive_form(item.ref) }}
+</div>
+{% endif %}
+
+{% else %}
+<h2>Nodes</h2>
+{% if project and project.nodes %}{{ m.tree(project.nodes) }}
+{% else %}<p class="muted small">No nodes yet.{% if writer %} Create the first one below.{% endif %}</p>{% endif %}
+{% if writer %}
+<h2>Actions</h2>
+<details class="act"><summary>New top-level node</summary>{{ m.node_form("/ui/r/" ~ item.ref ~ "/node") }}</details>
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

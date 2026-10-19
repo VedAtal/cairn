@@ -50,6 +50,7 @@ users = Table(
     Column("name", String(200), nullable=False),
     Column("is_instance_admin", Boolean, nullable=False, default=False),
     Column("active", Boolean, nullable=False, default=True),
+    Column("password_hash", String(200)),
     Column("created_at", TS, nullable=False),
 )
 Index("uq_users_instance_admin", users.c.is_instance_admin, unique=True,
@@ -196,8 +197,25 @@ credentials = Table(
     Column("name", String(100), nullable=False, default=""),
     Column("scopes", JSON, nullable=False, default=dict),
     Column("created_at", TS, nullable=False),
+    Column("expires_at", TS),
     Column("last_used_at", TS),
     Column("revoked_at", TS),
+)
+
+links = Table(
+    "links",
+    metadata,
+    _id(),
+    _fk("project_id", "projects.id", nullable=False),
+    Column("from_kind", String(1), nullable=False),
+    Column("from_id", ID, nullable=False),
+    Column("to_kind", String(1), nullable=False),
+    Column("to_id", ID, nullable=False),
+    Column("reason", String(200), nullable=False),
+    Column("created_by", ID, nullable=False),
+    Column("created_at", TS, nullable=False),
+    UniqueConstraint("from_kind", "from_id", "to_kind", "to_id"),
+    Index(None, "to_kind", "to_id"),
 )
 
 meta = Table("meta", metadata, Column("key", String(64), primary_key=True), Column("value", Text, nullable=False))

@@ -2,18 +2,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 
 from .. import __version__
-from ..core import admin
+from ..core import accounts, admin
 from ..core.access import Principal
 from ..core.inject import render
 from ..models import (
     AdminRequest,
     AdminResponse,
+    Archived,
     BootstrapRequest,
+    Change,
     GetRequest,
     GetResponse,
+    Graph,
     InjectRequest,
     InjectResponse,
     MapRequest,
@@ -43,8 +46,8 @@ async def hello(request: Request) -> dict[str, Any]:
 @router.post("/bootstrap")
 async def bootstrap(request: Request, body: BootstrapRequest) -> dict[str, str]:
     async with request.app.state.engine.begin() as conn:
-        key = await admin.bootstrap(conn, body.token, body.email, body.name)
-    return {"api_key": key, "store": request.app.state.settings.alias}
+        key, link = await admin.bootstrap(conn, body.token, body.email, body.name)
+    return {"api_key": key, "password_link": link, "store": request.app.state.settings.alias}
 
 
 @router.post("/search")
@@ -79,6 +82,28 @@ async def inject(request: Request, body: InjectRequest) -> InjectResponse:
     if body.render and unreachable:
         text += f"\n(Cairn store unreachable: {', '.join(unreachable)})"
     return InjectResponse(text=text, groups=[] if body.render else groups)
+
+
+@router.get("/changes")
+async def changes(request: Request, store: str | None = None, before: int | None = None,
+                  limit: int = Query(50, ge=1, le=200)) -> list[Change]:
+    return await request.app.state.federation.changes(_principal(request), store, before, limit)  # type: ignore[no-any-return]
+
+
+@router.get("/archived")
+async def archived(request: Request, store: str | None = None) -> list[Archived]:
+    return await request.app.state.federation.archived(_principal(request), store)  # type: ignore[no-any-return]
+
+
+@router.get("/graph")
+async def graph(request: Request, project: str) -> Graph:
+    return await request.app.state.federation.graph(_principal(request), project)  # type: ignore[no-any-return]
+
+
+@router.post("/ui/ticket")
+async def ui_ticket(request: Request) -> dict[str, str]:
+    async with request.app.state.engine.begin() as conn:
+        return {"ticket": await accounts.ui_ticket(conn, _principal(request))}
 
 
 @router.get("/status")

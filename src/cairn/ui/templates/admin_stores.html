@@ -1,0 +1,5 @@
+{% if stores|length > 1 %}
+<p class="row small muted">Store:
+  {% for s in stores %}{% if s == store %}<strong>{{ s }}</strong>{% else %}<a href="?store={{ s|urlencode }}">{{ s }}</a>{% endif %}{% endfor %}
+</p>
+{% endif %}

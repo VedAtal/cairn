@@ -49,6 +49,12 @@ class Brief(BaseModel):
     summary: str | None = None
 
 
+class LinkOut(BaseModel):
+    ref: str
+    title: str
+    reason: str
+
+
 class Revision(BaseModel):
     rev: int
     title: str
@@ -74,6 +80,8 @@ class Item(BaseModel):
     entries: list[Brief] = []
     counts: dict[str, int] = {}
     history: list[Revision] = []
+    links: list[LinkOut] = []
+    linked_from: list[LinkOut] = []
 
 
 class GetResponse(BaseModel):
@@ -115,11 +123,17 @@ class MapResponse(BaseModel):
     unreachable: list[str] = []
 
 
+class LinkIn(BaseModel):
+    to: str
+    reason: str
+
+
 class EntryFields(BaseModel):
     type: EntryType | None = None
     title: str | None = None
     body: str | None = None
     keywords: list[str] | None = None
+    links: list[LinkIn] | None = None
 
 
 class NodeFields(BaseModel):
@@ -127,6 +141,7 @@ class NodeFields(BaseModel):
     title: str | None = None
     summary: str | None = None
     keywords: list[str] | None = None
+    links: list[LinkIn] | None = None
 
 
 WriteOp = Literal["add", "update", "archive", "unarchive", "verify", "move", "create_node", "update_node"]
@@ -201,3 +216,40 @@ class ErrorBody(BaseModel):
     code: str
     message: str
     duplicates: list[Duplicate] = []
+
+
+class Change(BaseModel):
+    seq: int
+    ref: str
+    op: str
+    by: str
+    at: str
+    summary: str
+
+
+class Archived(BaseModel):
+    ref: str
+    title: str
+    reason: str | None
+    by: str
+    at: str
+
+
+class GraphNode(BaseModel):
+    ref: str
+    title: str
+    parent: str | None
+    entries: int
+    inject: bool
+
+
+class GraphEdge(BaseModel):
+    source: str
+    target: str
+    count: int
+    reasons: list[str]
+
+
+class Graph(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import secrets
 from typing import Any
 
@@ -9,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from ..db.schema import credentials, entries, nodes, project_members, projects, team_members, teams, users
 from .access import AccessError, NotFound, Principal, Scope
+from .accounts import hash_token, password_link
 from .refs import Ref, RefError, parse
 from .write import _SLUG as SLUG
 from .write import WriteError, _log, clean, get_entry, get_node, now
@@ -19,10 +19,6 @@ KEY_PREFIX = "cairn_pat_"
 def _check_slug(slug: str) -> None:
     if not SLUG.match(slug):
         raise WriteError("slug must match [a-z0-9_]{1,48}")
-
-
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
 
 
 async def issue_key(conn: AsyncConnection, user_id: int | None, kind: str = "api_key", name: str = "",
@@ -59,7 +55,7 @@ async def has_instance_admin(conn: AsyncConnection) -> bool:
     return (await conn.execute(select(users.c.id).where(users.c.is_instance_admin))).first() is not None
 
 
-async def bootstrap(conn: AsyncConnection, token: str, email: str, name: str) -> str:
+async def bootstrap(conn: AsyncConnection, token: str, email: str, name: str) -> tuple[str, str]:
     if await has_instance_admin(conn):
         raise AccessError("this instance is already set up", "already_setup")
     # Atomic consume, so two concurrent bootstraps can't both create an instance admin.
@@ -70,7 +66,7 @@ async def bootstrap(conn: AsyncConnection, token: str, email: str, name: str) ->
         raise AccessError("invalid setup token", "bad_token")
     user_id = await _create_user(conn, email, name, instance_admin=True)
     await conn.execute(update(credentials).where(credentials.c.kind == "setup").values(revoked_at=now()))
-    return await issue_key(conn, user_id, name="bootstrap")
+    return await issue_key(conn, user_id, name="bootstrap"), await password_link(conn, user_id)
 
 
 async def ensure_local(conn: AsyncConnection) -> int:
@@ -152,7 +148,7 @@ async def _team_role(conn: AsyncConnection, team_id: int, user_id: int) -> str |
 
 OPS = ("whoami", "users", "create_user", "set_user_active", "create_team", "archive_team", "unarchive_team",
        "set_team_member", "create_project", "archive_project", "unarchive_project", "set_project_member", "members",
-       "keys", "create_key", "revoke_key", "flag", "unflag")
+       "keys", "create_key", "revoke_key", "flag", "unflag", "password_link", "teams")
 
 
 async def run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -165,6 +161,20 @@ async def run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: di
             team_members, team_members.c.team_id == teams.c.id).where(team_members.c.user_id == user))).all()
         return {"email": me.email, "name": me.name, "instance_admin": scope.instance_admin,
                 "teams": {t.slug: t.role for t in team_rows}}
+    if op == "teams":  # admins also see archived teams and projects, so they can unarchive them
+        roles = dict((await conn.execute(select(team_members.c.team_id, team_members.c.role).where(
+            team_members.c.user_id == user))).all())
+        visible = scope.admin_teams | set(roles) | {scope.project_team[p] for p in scope.readable}
+        out = []
+        for t in (await conn.execute(select(teams).where(teams.c.id.in_(visible)).order_by(teams.c.slug))).all():
+            in_team = (await conn.execute(select(projects).where(projects.c.team_id == t.id)
+                                       .order_by(projects.c.slug))).all()
+            out.append({"slug": t.slug, "name": t.name, "archived": t.archived_at is not None,
+                        "role": roles.get(t.id), "admin": t.id in scope.admin_teams,
+                        "projects": [{"ref": f"{alias}:p{r.id}", "slug": r.slug, "name": r.name, "team": t.slug,
+                                      "archived": r.archived_at is not None} for r in in_team
+                                     if t.id in scope.admin_teams or r.id in scope.readable]})
+        return {"teams": out}
     if op == "keys":
         rows = await conn.execute(select(credentials.c.token_prefix, credentials.c.name, credentials.c.scopes,
                                          credentials.c.created_at, credentials.c.revoked_at).where(
@@ -193,7 +203,12 @@ async def run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: di
         scope.require_instance_admin()
         new_id = await _create_user(conn, _arg(args, "email"), _arg(args, "name", required=False) or "")
         return {"email": args["email"], "api_key": await issue_key(conn, new_id, name="initial"),
+                "password_link": await password_link(conn, new_id),
                 "note": "hand this key to the user; it is shown once"}
+    if op == "password_link":
+        scope.require_instance_admin()
+        return {"email": args.get("email"), "password_link": await password_link(conn, await _user_id(
+            conn, _arg(args, "email")))}
     if op == "set_user_active":
         scope.require_instance_admin()
         active = _arg(args, "active", bool)

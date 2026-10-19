@@ -7,18 +7,20 @@ from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Row, select, text, update
+from sqlalchemy import Row, delete, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..db.schema import change_log, entries, entry_revisions, nodes, term_df, vocab
+from ..db.schema import change_log, entries, entry_revisions, links, nodes, term_df, vocab
 from ..models import ENTRY_TYPES, Duplicate, EntryFields, NodeFields
 from .access import AccessError, NotFound, Scope, inject_locked
 from .analyzer import analyze, analyzed_text, is_opaque
 from .search import candidates, doc_frequencies, token_concepts
 
 MAX_TITLE, MAX_BODY, MAX_KEYWORDS, MAX_SUMMARY, MAX_NODE_KEYWORDS, MAX_DEPTH = 160, 2000, 8, 400, 12, 8
+MAX_LINKS, MAX_REASON = 10, 200
+type Links = list[tuple[str, int, str]] | None
 DUP_THRESHOLD = 0.6
 _SLUG = re.compile(r"^[a-z0-9_]{1,48}$")
 _INVISIBLE = re.compile("[​-‏‪-‮⁠-⁤⁦-⁩﻿]")
@@ -222,7 +224,7 @@ def _trigrams(value: str) -> set[str]:
 
 
 async def add_entry(conn: AsyncConnection, scope: Scope, node_id: int, fields: EntryFields,
-                    distinct_from: list[int]) -> int:
+                    distinct_from: list[int], new_links: Links = None) -> int:
     node = await get_node(conn, scope, node_id, lock=True)
     await _guard(conn, scope, node)
     _live(node)
@@ -237,12 +239,13 @@ async def add_entry(conn: AsyncConnection, scope: Scope, node_id: int, fields: E
     await conn.execute(entry_revisions.insert().values(entry_id=entry_id, rev=1, by=user, at=ts, **values))
     await _fts(conn, "entries", entry_id, an)
     await _apply_df(conn, node.project_id, _delta(_entry_tokens(an), +1))
+    await set_links(conn, scope, "e", int(entry_id), node.project_id, new_links)
     await _log(conn, node.project_id, f"e{entry_id}", "add", user, values["title"])
     return int(entry_id)
 
 
 async def update_entry(conn: AsyncConnection, scope: Scope, entry_id: int, base_revision: int | None,
-                       fields: EntryFields, distinct_from: list[int]) -> int:
+                       fields: EntryFields, distinct_from: list[int], new_links: Links = None) -> int:
     entry, node = await get_entry(conn, scope, entry_id, lock=True)
     await _guard(conn, scope, node, entry)
     if entry.archived_at is not None:
@@ -253,6 +256,7 @@ async def update_entry(conn: AsyncConnection, scope: Scope, entry_id: int, base_
                          "base_revision", "conflict")
     current = {"type": entry.type, "title": entry.title, "body": entry.body, "keywords": entry.keywords}
     values = validate_entry(fields, current)
+    await set_links(conn, scope, "e", entry_id, node.project_id, new_links)
     if values == current:
         return int(entry.rev)
     await _dedup(conn, scope, values, [entry_id, *distinct_from])
@@ -386,7 +390,7 @@ async def _reparent(conn: AsyncConnection, node: Row[Any], parent_id: int | None
 
 
 async def create_node(conn: AsyncConnection, scope: Scope, project_id: int | None, parent_id: int | None,
-                      fields: NodeFields) -> int:
+                      fields: NodeFields, new_links: Links = None) -> int:
     parent = await get_node(conn, scope, parent_id, lock=True) if parent_id else None
     if parent is not None:
         await _guard(conn, scope, parent)
@@ -410,12 +414,13 @@ async def create_node(conn: AsyncConnection, scope: Scope, project_id: int | Non
         is_searchable=True, created_at=ts, created_by=user, updated_at=ts, updated_by=user,
     ).returning(nodes.c.id))).scalar_one()
     await _fts(conn, "nodes", node_id, an)
+    await set_links(conn, scope, "n", int(node_id), project_id, new_links)
     await _log(conn, project_id, f"n{node_id}", "create_node", user, path)
     return int(node_id)
 
 
 async def update_node(conn: AsyncConnection, scope: Scope, node_id: int, base_revision: int | None,
-                      fields: NodeFields) -> int:
+                      fields: NodeFields, new_links: Links = None) -> int:
     node = await get_node(conn, scope, node_id, lock=True)
     await _guard(conn, scope, node)
     _live(node)
@@ -431,5 +436,44 @@ async def update_node(conn: AsyncConnection, scope: Scope, node_id: int, base_re
     await conn.execute(update(nodes).where(nodes.c.id == node_id)
                        .values(**values, **an, rev=node.rev + 1, updated_at=now(), updated_by=user))
     await _fts(conn, "nodes", node_id, an)
+    await set_links(conn, scope, "n", node_id, node.project_id, new_links)
     await _log(conn, node.project_id, f"n{node_id}", "update_node", user, values["title"])
     return int(node.rev + 1)
+
+
+async def set_links(conn: AsyncConnection, scope: Scope, kind: str, item_id: int, project_id: int,
+                    new_links: Links) -> None:
+    """Replace an item's outgoing links; None leaves them unchanged."""
+    if new_links is None:
+        return
+    if len(new_links) > MAX_LINKS:
+        raise WriteError(f"at most {MAX_LINKS} links")
+    # Only replace links the writer can see; links to archived or unreadable targets survive untouched.
+    existing = (await conn.execute(select(links.c.id, links.c.to_kind, links.c.to_id).where(
+        links.c.from_kind == kind, links.c.from_id == item_id))).all()
+    hidden = set()
+    for row in existing:
+        table = entries if row.to_kind == "e" else nodes
+        target = (await conn.execute(select(table.c.project_id, table.c.is_searchable)
+                                     .where(table.c.id == row.to_id))).first()
+        if target is not None and target.project_id in scope.readable and target.is_searchable:
+            await conn.execute(delete(links).where(links.c.id == row.id))
+        else:
+            hidden.add((row.to_kind, row.to_id))
+    seen: set[tuple[str, int]] = {(kind, item_id), *hidden}
+    for to_kind, to_id, raw_reason in new_links:
+        reason = clean(raw_reason)
+        if not reason or len(reason) > MAX_REASON:
+            raise WriteError(f"each link needs a reason (≤ {MAX_REASON} characters): what the dependency does to you")
+        _check_secrets(reason)
+        if (to_kind, to_id) in seen:
+            continue
+        seen.add((to_kind, to_id))
+        table = entries if to_kind == "e" else nodes
+        target = (await conn.execute(select(table.c.project_id, table.c.is_searchable)
+                                     .where(table.c.id == to_id))).first()
+        if target is None or target.project_id not in scope.readable or not target.is_searchable:
+            raise WriteError(f"link target {to_kind}{to_id} not found, archived, or not visible to you", "not_found")
+        await conn.execute(links.insert().values(project_id=project_id, from_kind=kind, from_id=item_id,
+                                                 to_kind=to_kind, to_id=to_id, reason=reason,
+                                                 created_by=scope.principal.user_id, created_at=now()))

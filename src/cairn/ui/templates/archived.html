@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "admin_macros.html" as m with context %}
+{% block title %}Archived · Cairn{% endblock %}
+{% block head %}{% include "admin_style.html" %}{% endblock %}
+{% block content %}
+<h1>Archived</h1>
+{% include "admin_stores.html" %}
+<div id="archived" class="stack" hx-target="#archived" hx-select="#archived" hx-swap="outerHTML">
+  {{ m.flash("top") }}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  {% if rows %}
+  <table>
+    <thead><tr><th>Title</th><th>Reason</th><th>Who</th><th>When</th><th></th></tr></thead>
+    <tbody>
+    {% for a in rows %}
+      <tr>
+        <td><a href="/ui/r/{{ a.ref }}">{{ a.title }}</a> <span class="ref muted">{{ a.ref }}</span></td>
+        <td>{{ a.reason or "" }}</td>
+        <td>{{ a.by }}</td>
+        <td class="muted small">{{ a.at }}</td>
+        <td>
+          <form method="post" hx-post="" class="row">
+            <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ref" value="{{ a.ref }}">
+            <button class="secondary" type="submit">Unarchive</button>
+          </form>
+          {{ m.flash(a.ref) }}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% elif not error %}
+  <p class="muted">Nothing is archived.</p>
+  {% endif %}
+</div>
+{% endblock %}

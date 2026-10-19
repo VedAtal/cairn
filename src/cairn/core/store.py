@@ -11,13 +11,17 @@ from ..db.schema import entries, entry_revisions, nodes, projects, teams, users
 from ..models import (
     AdminRequest,
     AdminResponse,
+    Archived,
     Brief,
+    Change,
     EntryFields,
     GetRequest,
     GetResponse,
+    Graph,
     HitOut,
     InjectGroup,
     Item,
+    LinkIn,
     MapNode,
     MapProject,
     MapRequest,
@@ -30,10 +34,11 @@ from ..models import (
     WriteRequest,
     WriteResponse,
 )
-from . import admin, inject, write
+from . import admin, inject, views, write
 from .access import NotFound, Principal, Scope, scope_for
 from .refs import Ref, RefError, parse
 from .search import Hit, parse_concepts, search, sort_key
+from .write import Links
 
 MAX_CHILDREN = 30
 
@@ -57,6 +62,9 @@ class Store(Protocol):
     async def write(self, p: Principal, req: WriteRequest) -> WriteResponse: ...
     async def admin(self, p: Principal, req: AdminRequest) -> AdminResponse: ...
     async def inject(self, p: Principal) -> list[InjectGroup]: ...
+    async def changes(self, p: Principal, before: int | None, limit: int) -> list[Change]: ...
+    async def archived(self, p: Principal) -> list[Archived]: ...
+    async def graph(self, p: Principal, project: str) -> Graph: ...
 
 
 class SqlStore:
@@ -117,8 +125,9 @@ class SqlStore:
             kids = await self._children(conn, node.project_id, node.id)
             rows = (await conn.execute(select(entries.c.id, entries.c.type, entries.c.title).where(
                 entries.c.node_id == node.id, entries.c.is_searchable).order_by(entries.c.id))).all()
+            out, back = await views.links_of(conn, scope, self.alias, "n", node.id)
             return Item(ref=ref, status="ok", title=node.title, summary=node.summary, keywords=node.keywords,
-                        path=node.path, rev=node.rev, inject=node.inject, children=kids,
+                        path=node.path, rev=node.rev, inject=node.inject, children=kids, links=out, linked_from=back,
                         entries=[Brief(ref=f"{self.alias}:e{e.id}", type=e.type, title=e.title)
                                  for e in rows[:MAX_CHILDREN]],
                         counts={"entries": len(rows), "children": len(kids)})
@@ -130,10 +139,11 @@ class SqlStore:
             revs = await conn.execute(select(entry_revisions).where(entry_revisions.c.entry_id == r.id)
                                       .order_by(entry_revisions.c.rev.desc()))
             revisions = [Revision(rev=v.rev, title=v.title, body=v.body, at=str(v.at)[:19]) for v in revs]
+        out, back = await views.links_of(conn, scope, self.alias, "e", entry.id)
         return Item(ref=ref, status="ok", type=entry.type, title=entry.title, body=entry.body,
                     keywords=entry.keywords, rev=entry.rev, inject=entry.inject,
                     verified_at=str(entry.verified_at)[:10], node_ref=f"{self.alias}:n{node.id}", path=node.path,
-                    history=revisions)
+                    history=revisions, links=out, linked_from=back)
 
     async def _tombstone(self, conn: AsyncConnection, ref: str, row: Any) -> Item:
         if row.archived_at is None:
@@ -222,12 +232,13 @@ class SqlStore:
         if req.op == "add":
             if node is None or req.entry is None:
                 raise write.WriteError("add needs node and entry")
-            new_id = await write.add_entry(conn, scope, node, req.entry, distinct)
+            new_id = await write.add_entry(conn, scope, node, req.entry, distinct, self._links(req.entry.links))
             return WriteResponse(ok=True, ref=f"{self.alias}:e{new_id}", rev=1, message="added")
         if req.op == "update":
             t = need_target("e")
-            rev = await write.update_entry(conn, scope, t.id, req.base_revision, req.entry or EntryFields(),
-                                           distinct)
+            fields = req.entry or EntryFields()
+            rev = await write.update_entry(conn, scope, t.id, req.base_revision, fields, distinct,
+                                           self._links(fields.links))
             return WriteResponse(ok=True, ref=str(t), rev=rev, message="updated")
         if req.op in ("archive", "unarchive"):
             t = need_target("en")
@@ -242,10 +253,13 @@ class SqlStore:
             await write.move(conn, scope, t.kind, t.id, node, project)
             return WriteResponse(ok=True, ref=str(t), message="moved")
         if req.op == "create_node":
-            new_id = await write.create_node(conn, scope, project, node, req.node_fields or NodeFields())
+            node_fields = req.node_fields or NodeFields()
+            new_id = await write.create_node(conn, scope, project, node, node_fields, self._links(node_fields.links))
             return WriteResponse(ok=True, ref=f"{self.alias}:n{new_id}", rev=1, message="created")
         t = need_target("n")
-        rev = await write.update_node(conn, scope, t.id, req.base_revision, req.node_fields or NodeFields())
+        node_fields = req.node_fields or NodeFields()
+        rev = await write.update_node(conn, scope, t.id, req.base_revision, node_fields,
+                                      self._links(node_fields.links))
         return WriteResponse(ok=True, ref=str(t), rev=rev, message="updated")
 
     async def admin(self, p: Principal, req: AdminRequest) -> AdminResponse:
@@ -257,6 +271,22 @@ class SqlStore:
         async with self.engine.connect() as conn:
             scope = await scope_for(conn, p)
             return await inject.collect(conn, self.alias, sorted(scope.readable))
+
+    async def changes(self, p: Principal, before: int | None, limit: int) -> list[Change]:
+        async with self.engine.connect() as conn:
+            return await views.changes(conn, await scope_for(conn, p), self.alias, before, limit)
+
+    async def archived(self, p: Principal) -> list[Archived]:
+        async with self.engine.connect() as conn:
+            return await views.archived(conn, await scope_for(conn, p), self.alias)
+
+    async def graph(self, p: Principal, project: str) -> Graph:
+        async with self.engine.connect() as conn:
+            return await views.graph(conn, await scope_for(conn, p), self.alias, self._ref(project, "p").id)
+
+    def _links(self, given: list[LinkIn] | None) -> Links:
+        return None if given is None else [(r.kind, r.id, link.reason)
+                                           for link in given for r in [self._ref(link.to, "en")]]
 
 
 def _keep(node: MapNode, flt: str) -> bool:
@@ -302,6 +332,26 @@ class RemoteStore:
 
         data = await self._post("/inject", InjectRequest(render=False))
         return InjectResponse.model_validate(data).groups
+
+    async def _get(self, path: str, **params: Any) -> Any:
+        try:
+            resp = await self.client.get(path, params={k: v for k, v in params.items() if v is not None}, timeout=10)
+        except httpx.HTTPError as exc:
+            raise StoreUnavailable(self.alias) from exc
+        if resp.status_code >= 500:
+            raise StoreUnavailable(self.alias)
+        if resp.status_code >= 400:
+            raise RemoteError(resp.status_code, resp.json())
+        return resp.json()
+
+    async def changes(self, p: Principal, before: int | None, limit: int) -> list[Change]:
+        return [Change.model_validate(c) for c in await self._get("/changes", before=before, limit=limit)]
+
+    async def archived(self, p: Principal) -> list[Archived]:
+        return [Archived.model_validate(a) for a in await self._get("/archived")]
+
+    async def graph(self, p: Principal, project: str) -> Graph:
+        return Graph.model_validate(await self._get("/graph", project=project))
 
     async def aclose(self) -> None:
         await self.client.aclose()
@@ -380,6 +430,15 @@ class Federation:
         if req.store and ref_store and req.store != ref_store:
             raise RefError(f"{ref} belongs to store {ref_store!r}, not {req.store!r}")
         return await self._pick(req.store or ref_store).admin(p, req)
+
+    async def changes(self, p: Principal, store: str | None, before: int | None, limit: int) -> list[Change]:
+        return await self._pick(store).changes(p, before, limit)
+
+    async def archived(self, p: Principal, store: str | None) -> list[Archived]:
+        return await self._pick(store).archived(p)
+
+    async def graph(self, p: Principal, project: str) -> Graph:
+        return await self._pick(project.split(":", 1)[0]).graph(p, project)
 
     async def inject(self, p: Principal) -> tuple[list[InjectGroup], list[str]]:
         results = await asyncio.gather(*(s.inject(p) for s in self.stores), return_exceptions=True)

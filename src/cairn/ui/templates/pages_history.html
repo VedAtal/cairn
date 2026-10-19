@@ -1,0 +1,9 @@
+{% for r in revisions %}
+<div class="rev">
+  <div class="small muted">rev {{ r.rev }} · {{ r.at }}</div>
+  <strong>{{ r.title }}</strong>
+  {% if r.body %}<div class="body small">{{ r.body|linkrefs }}</div>{% endif %}
+</div>
+{% else %}
+<p class="muted small">No revisions to show.</p>
+{% endfor %}

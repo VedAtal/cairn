@@ -1,0 +1,105 @@
+{% macro style() %}
+<style>
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+  .meta { color: var(--muted); font-size: 0.85rem; margin: 0.25rem 0 1rem; }
+  .grow { flex: 1; min-width: 12rem; }
+  .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+  .tree { margin-top: 0.5rem; }
+  .tree ul { margin-left: 0.35rem; padding-left: 0.9rem; border-left: 1px solid var(--line); }
+  .tree li { padding: 0.15rem 0; }
+  .count { font-size: 0.72rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px;
+           padding: 0 0.4rem; margin-left: 0.2rem; }
+  .kw { display: inline-block; font-size: 0.78rem; color: var(--muted); border: 1px solid var(--line);
+        border-radius: 4px; padding: 0 0.35rem; margin: 0 0.25rem 0.25rem 0; }
+  .acts { display: flex; flex-direction: column; gap: 0.6rem; }
+  details.act { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 0.55rem 0.9rem; }
+  details.act > summary { cursor: pointer; font-weight: 550; font-size: 0.93rem; }
+  details.act[open] > summary { margin-bottom: 0.8rem; }
+  .card details.act { margin-top: 0.8rem; background: var(--bg); }
+  textarea.short { min-height: 4.5rem; font-family: inherit; font-size: inherit; }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0; padding: 0.5rem 0.8rem 0.7rem;
+             display: flex; flex-direction: column; gap: 0.4rem; }
+  .linkrow input:first-child { width: 11rem; }
+  .err:empty { display: none; }
+  .group { margin-top: 1.4rem; }
+  .group .list { margin-left: 0.2rem; }
+  .rev { padding: 0.6rem 0; border-bottom: 1px solid var(--line); }
+</style>
+{% endmacro %}
+
+{% macro tree(nodes) %}
+<ul class="tree">
+  {% for n in nodes recursive %}
+  <li><a href="/ui/r/{{ n.ref }}">{{ n.title }}</a><span class="count" title="entries">{{ n.entries }}</span>
+    {% if n.summary %}<span class="muted small"> — {{ n.summary }}</span>{% endif %}
+    {% if n.children %}<ul>{{ loop(n.children) }}</ul>{% endif %}</li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro links(item) %}
+{% for heading, rows in [("Links to", item.links), ("Linked from", item.linked_from)] if rows %}
+<h2>{{ heading }}</h2>
+<ul class="list">
+  {% for l in rows %}
+  <li><a href="/ui/r/{{ l.ref }}">{{ l.title }}</a> <code class="muted">{{ l.ref }}</code>
+    <div class="small muted">{{ l.reason|linkrefs }}</div></li>
+  {% endfor %}
+</ul>
+{% endfor %}
+{% endmacro %}
+
+{% macro link_rows(links) %}
+<fieldset>
+  <legend class="small muted">Links: target ref and what the dependency does to you</legend>
+  {% for i in range(links|length + 2) %}{% set l = links[i] if i < links|length else none %}
+  <div class="row linkrow"><input name="to{{ i }}" placeholder="target ref" value="{{ l.ref if l else '' }}">
+    <input class="grow" name="reason{{ i }}" placeholder="reason" value="{{ l.reason if l else '' }}">
+    {% if l %}<input type="hidden" name="was{{ i }}" value="{{ l.ref }}"><input type="hidden" name="why{{ i }}" value="{{ l.reason }}">{% endif %}</div>
+  {% endfor %}
+</fieldset>
+{% endmacro %}
+
+{% macro entry_form(action, types, item=none) %}
+<form class="stack" hx-post="{{ action }}" hx-target="find .err">
+  {% if item %}<input type="hidden" name="base_revision" value="{{ item.rev }}">{% endif %}
+  <label>Type <select name="type">
+    {% for t in types %}<option value="{{ t }}" {% if item and item.type == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+  </select></label>
+  <label>Title <input name="title" value="{{ item.title if item else '' }}" placeholder="One line stating the fact" required></label>
+  <label>Body <textarea name="body">{{ item.body if item else '' }}</textarea></label>
+  <label>Keywords <input name="keywords" value="{{ item.keywords|join(', ') if item else '' }}" placeholder="comma separated"></label>
+  {{ link_rows(item.links if item else []) }}
+  <div class="err"></div>
+  <div class="row"><button type="submit">{{ "Save" if item else "Add entry" }}</button></div>
+</form>
+{% endmacro %}
+
+{% macro node_form(action, node=none) %}
+<form class="stack" hx-post="{{ action }}" hx-target="find .err">
+  {% if node %}<input type="hidden" name="base_revision" value="{{ node.rev }}">
+  {% else %}<label>Slug <input name="slug" pattern="[a-z0-9_]{1,48}" placeholder="billing" required></label>{% endif %}
+  <label>Title <input name="title" value="{{ node.title if node else '' }}" required></label>
+  <label>Summary <textarea class="short" name="summary">{{ node.summary if node else '' }}</textarea></label>
+  <label>Keywords <input name="keywords" value="{{ node.keywords|join(', ') if node else '' }}" placeholder="comma separated"></label>
+  {% if node %}{{ link_rows(node.links) }}{% endif %}
+  <div class="err"></div>
+  <div class="row"><button type="submit">{{ "Save" if node else "Create node" }}</button></div>
+</form>
+{% endmacro %}
+
+{% macro archive_form(ref) %}
+<details class="act"><summary>Archive</summary>
+  <form class="stack" hx-post="/ui/r/{{ ref }}/archive" hx-target="find .err"
+        hx-confirm="Archive {{ ref }}? It leaves search, injection and links until unarchived.">
+    <div class="row"><input class="grow" name="reason" placeholder="Reason (optional)">
+      <button class="danger" type="submit">Archive</button></div>
+    <div class="err"></div>
+  </form>
+</details>
+{% endmacro %}
+
+{% macro flag_button(item) %}
+<button class="secondary" hx-post="/ui/r/{{ item.ref }}/{{ 'unflag' if item.inject else 'flag' }}" hx-target="#msg">
+  {{ "Unflag (stop injecting)" if item.inject else "Flag (inject into every session)" }}</button>
+{% endmacro %}

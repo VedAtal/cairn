@@ -27,7 +27,8 @@ class AuthMiddleware:
         request = Request(scope)
         if self.local_port is not None and (problem := self._local_check(request)):
             return await JSONResponse(problem[1], status_code=problem[0])(scope, receive, send)
-        if request.url.path in PUBLIC:
+        path = request.url.path
+        if path in PUBLIC or path == "/" or path == "/ui" or path.startswith("/ui/"):  # the UI authenticates by cookie
             return await self.app(scope, receive, send)
         token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
         principal = await self.authenticate(token) if token else None

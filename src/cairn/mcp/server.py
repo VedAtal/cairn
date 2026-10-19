@@ -123,8 +123,9 @@ def build_mcp(federation: Callable[[], Federation]) -> MCPServer:
         "update (needs base_revision; prefer it when a fact changed), archive / unarchive (entry or node; archived "
         "content disappears from everything), verify (confirm still true), move (within a project), create_node "
         "(node = parent, or project), update_node. Entry: type, a title stating the fact, body ≤ 2,000 chars, ≤ 8 "
-        "keywords. The server rejects secrets and returns possible duplicates instead of writing: then update the "
-        "existing entry or resend with distinct_from. Team writes are visible to the team at once."))
+        "keywords, and optional links [{to: ref, reason}] (the reason says what the dependency does to you). The "
+        "server rejects secrets and returns possible duplicates instead of writing: then update the existing entry "
+        "or resend with distinct_from. Team writes are visible to the team at once."))
     async def write(ctx: Context, op: WriteOp, ref: str | None = None, node: str | None = None,
                     project: str | None = None, base_revision: int | None = None, entry: EntryFields | None = None,
                     node_fields: NodeFields | None = None, reason: str | None = None,

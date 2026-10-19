@@ -1,0 +1,12 @@
+<form class="stack" hx-post="/ui/r/{{ ref }}/move" hx-target="find .err">
+  <div class="row">
+    <select class="grow" name="node" required>
+      {% for n in nodes recursive %}
+      {% if n.ref != current %}<option value="{{ n.ref }}">{{ " " * loop.depth0 }}{{ n.title }}</option>{% endif %}
+      {{ loop(n.children) }}
+      {% endfor %}
+    </select>
+    <button type="submit">Move</button>
+  </div>
+  <div class="err"></div>
+</form>

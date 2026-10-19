@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Log in · Cairn{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<h1>Cairn</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if local %}
+<p class="muted">Run <code>cairn ui</code> to open your local Cairn, logged in.</p>
+{% else %}
+<form method="post" action="/ui/login" class="stack">
+  <input type="hidden" name="next" value="{{ next }}">
+  <label>Email <input type="email" name="email" autocomplete="username" required autofocus></label>
+  <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+  <button type="submit">Log in</button>
+</form>
+<p class="muted small">No password yet? Ask your admin for a set-password link, or run <code>cairn ui --remote</code>.</p>
+{% endif %}
+{% endblock %}

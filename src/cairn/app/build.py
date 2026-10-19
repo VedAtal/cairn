@@ -7,11 +7,12 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy.exc import IntegrityError
 
-from .. import __version__
+from .. import __version__, ui
 from ..core import admin
 from ..core.access import AccessError, NotFound, Principal
 from ..core.refs import RefError
@@ -66,6 +67,7 @@ def build_app(settings: Settings | None = None, port: int | None = None) -> Fast
 
     app = FastAPI(title="Cairn", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.settings, app.state.engine, app.state.federation, app.state.ready = settings, engine, federation, False
+    app.state.local_port = port if local else None
 
     async def authenticate(token: str) -> Principal | None:
         if local:
@@ -78,6 +80,11 @@ def build_app(settings: Settings | None = None, port: int | None = None) -> Fast
     _errors(app)
     app.include_router(health.router)
     app.include_router(api.router)
+    app.include_router(ui.router)
+    app.mount("/ui/static", StaticFiles(directory=ui.base.HERE / "static"), name="static")
+    app.add_api_route("/", lambda: RedirectResponse("/ui"), include_in_schema=False)
+    app.add_exception_handler(ui.base.LoginRequired, lambda request, exc: ui.base.login_redirect(request))
+    app.add_exception_handler(ui.base.StalePage, lambda request, exc: ui.base.stale_page(request))
     # Last, at "/": a "/mcp" sub-mount redirects POST /mcp, which clients don't follow.
     app.mount("/", mcp.streamable_http_app(
         streamable_http_path="/mcp", stateless_http=True, json_response=True,

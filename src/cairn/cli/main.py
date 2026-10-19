@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import time
+import webbrowser
 from pathlib import Path
 from typing import Any
 
@@ -143,7 +144,24 @@ def remote_bootstrap(url: str, token: str, email: str, name: str | None) -> None
     if status != 200:
         raise CliError(f"bootstrap failed: {_message(status, body)}")
     print(f"instance admin created; API key (shown once, keep it safe): {body['api_key']}")
+    print(f"set a password for the web UI: {url}{body['password_link']}")
     remote_add(url, body["api_key"], replace=False)
+
+
+def ui(use_remote: bool) -> None:
+    if (port := local_port()) and not use_remote:
+        base, token = f"http://127.0.0.1:{port}", local_token()
+        local.ensure_running(port, 5.0)
+    elif found := remote():
+        base, token = found
+    else:
+        raise CliError("Cairn is not configured; run cairn local enable or cairn remote add")
+    status, body = fetch(f"{base}/api/v1/ui/ticket", {}, token)
+    if status != 200:
+        raise CliError(f"could not open the UI: {_message(status, body)}")
+    url = f"{base}/ui/login?ticket={body['ticket']}"
+    print(url)
+    webbrowser.open(url)
 
 
 def _refuse_second_remote(replace: bool) -> None:
@@ -278,6 +296,10 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--hook", choices=["claude-code", "codex"])
     p.add_argument("--budget", type=int, default=8000)
     p.set_defaults(run=lambda a: print(json.dumps(inject(a.budget))))
+
+    p = sub.add_parser("ui", help="open the web UI, logged in")
+    p.add_argument("--remote", action="store_true", help="the team server's UI, when local is also set up")
+    p.set_defaults(run=lambda a: ui(a.remote))
 
     p = sub.add_parser("setup", help="connect a harness to Cairn")
     p.add_argument("harness", choices=["claude", "codex"])

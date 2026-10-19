@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% import "pages_macros.html" as m %}
+{% block title %}Browse · Cairn{% endblock %}
+{% block head %}{{ m.style() }}{% endblock %}
+{% block content %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if tree %}
+{% for s in tree.stores %}
+<section class="stack">
+  <div class="head"><h1>{{ s.store }}</h1><span class="muted small">signed in as {{ s.user }}</span></div>
+  {% for pr in s.projects %}
+  <div class="card">
+    <div class="head">
+      <div><a href="/ui/r/{{ pr.ref }}"><strong>{{ pr.team }} / {{ pr.name }}</strong></a>
+        <span class="badge" title="your role">{{ pr.role }}</span></div>
+      <a class="small" href="/ui/graph?project={{ pr.ref }}">Graph</a>
+    </div>
+    {% if pr.nodes %}{{ m.tree(pr.nodes) }}
+    {% else %}<p class="muted small">No nodes yet.{% if pr.role != "read" %} Create the first one below; agents can
+      then place entries in it.{% endif %}</p>{% endif %}
+    {% if pr.role != "read" %}
+    <details class="act"><summary>New top-level node</summary>{{ m.node_form("/ui/r/" ~ pr.ref ~ "/node") }}</details>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="muted">No projects visible to you here. A team admin can add you to a project.</p>
+  {% endfor %}
+</section>
+{% endfor %}
+{% if tree.unreachable %}<p class="error small">Unreachable: {{ tree.unreachable|join(", ") }}</p>{% endif %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Cairn{% endblock %}</title>
+  <link rel="stylesheet" href="/ui/static/cairn.css?v={{ assets }}">
+  <script src="/ui/static/htmx.min.js?v={{ assets }}" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body hx-headers='{"X-CSRF": "{{ csrf }}"}'>
+  {% if me %}
+  <header class="topbar">
+    <a class="brand" href="/ui">Cairn</a>
+    <form class="search" action="/ui/search" method="get">
+      <input type="search" name="q" placeholder="Search: concepts separated by commas, variants by |" value="{{ q or '' }}"
+             autocomplete="off">
+    </form>
+    <nav>
+      <a href="/ui" {% if path == '/ui' %}aria-current="page"{% endif %}>Browse</a>
+      <a href="/ui/graph" {% if path.startswith('/ui/graph') %}aria-current="page"{% endif %}>Graph</a>
+      <a href="/ui/changes" {% if path.startswith('/ui/changes') %}aria-current="page"{% endif %}>Changes</a>
+      <a href="/ui/archived" {% if path.startswith('/ui/archived') %}aria-current="page"{% endif %}>Archived</a>
+      <a href="/ui/admin" {% if path.startswith('/ui/admin') %}aria-current="page"{% endif %}>Admin</a>
+      <form action="/ui/logout" method="post"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="link" type="submit">Log out</button></form>
+    </nav>
+  </header>
+  {% endif %}
+  <main class="{% block main_class %}page{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

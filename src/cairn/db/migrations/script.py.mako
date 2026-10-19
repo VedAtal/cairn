@@ -1,8 +1,4 @@
-"""${message}
-
-Revision ID: ${up_revision}
-Revises: ${down_revision | comma,n}
-"""
+"""${message}"""
 
 from __future__ import annotations
 

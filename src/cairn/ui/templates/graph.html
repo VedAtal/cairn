@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Graph · Cairn{% endblock %}
+{% block main_class %}wide{% endblock %}
+{% block head %}
+<style>
+  .graph { display: flex; flex-direction: column; height: 100%; }
+  .graph-bar { gap: 0.75rem; padding: 0.55rem 1.25rem; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .graph-bar form { margin: 0; }
+  .graph-bar select { max-width: 22rem; }
+  .graph-bar input[type=search] { width: 14rem; }
+  .seg { display: inline-flex; }
+  .seg button { background: transparent; color: var(--text); border-color: var(--line); padding: 0.3rem 0.75rem; }
+  .seg button:first-child { border-radius: 6px 0 0 6px; }
+  .seg button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+  .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); position: relative; }
+  .legend { display: inline-flex; flex-wrap: wrap; gap: 0.9rem; margin-left: auto; align-items: center; }
+  .legend i { display: inline-block; vertical-align: middle; margin-right: 0.3rem; }
+  .sw-node { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--accent); background: var(--surface); }
+  .sw-inject { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--warn); background: var(--warn); }
+  .sw-parent { width: 18px; border-top: 1.5px solid var(--muted); }
+  .sw-link { width: 18px; border-top: 2px dashed var(--accent); }
+  .graph-stage { position: relative; flex: 1; min-height: 0; }
+  #graph { position: absolute; inset: 0; }
+  .graph-msg { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+  .graph-msg[hidden] { display: none; }
+  .graph-alert { margin: 0.75rem 1.25rem 0; }
+  .graph-tip { position: absolute; z-index: 5; max-width: 320px; padding: 0.35rem 0.6rem; background: var(--surface);
+               border: 1px solid var(--line); border-radius: 6px; font-size: 0.82rem; white-space: pre-line;
+               pointer-events: none; box-shadow: 0 2px 10px rgb(0 0 0 / 0.12); }
+  .graph-empty { padding: 2rem 1.25rem; max-width: 640px; }
+</style>
+{% if project and not error %}
+<script src="/ui/static/cytoscape.min.js?v={{ assets }}" defer></script>
+{% endif %}
+<script src="/ui/static/graph.js?v={{ assets }}" defer></script>
+{% endblock %}
+{% block content %}
+{% if not projects and not error %}
+<div class="graph-empty">
+  <h1>Graph</h1>
+  <div class="card">
+    <p>No projects you can read yet.</p>
+    <p class="muted small">An admin can create a project and add you from <a href="/ui/admin">Admin</a>.</p>
+    {% if unreachable %}<p class="error small">Unreachable: {{ unreachable | join(", ") }}</p>{% endif %}
+  </div>
+</div>
+{% else %}
+<div class="graph">
+  <div class="graph-bar row">
+    {% if projects %}
+    <form method="get" action="/ui/graph">
+      <select id="graph-project" name="project" aria-label="Project">
+        {% for ref, label in projects.items() %}
+        <option value="{{ ref }}" {% if ref == project %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+    {% if project and not error %}
+    <div class="seg" role="group" aria-label="Layout">
+      <button type="button" data-layout="tree" aria-pressed="false">Tree</button>
+      <button type="button" data-layout="force" aria-pressed="false">Force</button>
+    </div>
+    <input type="search" id="graph-filter" placeholder="Highlight nodes by title" autocomplete="off">
+    <span id="graph-note" class="muted small"></span>
+    <span class="legend muted small">
+      <span><i class="sw-node"></i>node (size = entries)</span>
+      <span><i class="sw-inject"></i>injected</span>
+      <span><i class="sw-parent"></i>parent</span>
+      <span><i class="sw-link"></i>link</span>
+    </span>
+    {% endif %}
+  </div>
+  {% if unreachable %}<p class="graph-alert error small">Unreachable: {{ unreachable | join(", ") }}</p>{% endif %}
+  {% if error %}
+  <p class="graph-alert error">{{ error }}</p>
+  {% else %}
+  <div class="graph-stage">
+    <div id="graph" data-project="{{ project }}"></div>
+    <div id="graph-msg" class="graph-msg muted">Loading…</div>
+    <div id="graph-tip" class="graph-tip" hidden></div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

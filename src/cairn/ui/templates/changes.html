@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Changes · Cairn{% endblock %}
+{% block content %}
+<h1>Changes</h1>
+{% include "admin_stores.html" %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if rows %}
+<table>
+  <thead><tr><th>When</th><th>Who</th><th>Op</th><th>Ref</th><th>Summary</th></tr></thead>
+  <tbody>
+  {% for c in rows %}
+    <tr>
+      <td class="muted small">{{ c.at }}</td>
+      <td>{{ c.by }}</td>
+      <td><span class="badge">{{ c.op }}</span></td>
+      <td><a class="ref" href="/ui/r/{{ c.ref }}">{{ c.ref }}</a></td>
+      <td>{{ c.summary }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% elif not error %}
+<p class="muted">No changes{% if before %} before this point{% endif %}.</p>
+{% endif %}
+<p class="row">
+  {% if before %}<a href="?store={{ store|urlencode }}">Newest</a>{% endif %}
+  {% if older %}<a href="?store={{ store|urlencode }}&amp;before={{ older }}">Older</a>{% endif %}
+</p>
+{% endblock %}

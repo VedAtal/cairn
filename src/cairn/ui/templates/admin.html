@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% import "admin_macros.html" as m with context %}
+{% block title %}Admin · Cairn{% endblock %}
+{% block head %}{% include "admin_style.html" %}{% endblock %}
+{% block content %}
+<h1>Admin</h1>
+{% include "admin_stores.html" %}
+<div id="admin" class="stack" hx-target="#admin" hx-select="#admin" hx-swap="outerHTML">
+{{ m.flash("top") }}
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if who %}
+
+<section>
+  <h2>My account</h2>
+  <div class="card stack">
+    <div class="row">{{ who.email }}{% if who.instance_admin %} <span class="badge">instance admin</span>{% endif %}</div>
+    {{ m.flash("account") }}
+    {% if keys %}
+    <table>
+      <thead><tr><th>API key</th><th>Name</th><th>Limits</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+      {% for k in keys %}
+        <tr>
+          <td><code>{{ k.token_prefix }}…</code></td>
+          <td>{{ k.name }}</td>
+          <td>{% for s, on in (k.scopes or {}).items() if on %}<span class="badge">{{ s }}</span> {% endfor %}</td>
+          <td class="muted small">{{ k.created_at }}</td>
+          <td>{% if k.revoked_at %}<span class="muted small">revoked {{ k.revoked_at }}</span>{% else %}
+            {% call m.post("revoke_key", "Revoke this key? Agents using it stop working.") %}
+              <input type="hidden" name="prefix" value="{{ k.token_prefix }}"><button class="danger" type="submit">Revoke</button>
+            {% endcall %}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+    {% call m.post("create_key") %}
+      <input name="name" placeholder="Key name, e.g. laptop" aria-label="key name">
+      <label class="check small"><input type="checkbox" name="read_only" value="true"> read only</label>
+      <label class="check small"><input type="checkbox" name="no_admin" value="true"> no admin</label>
+      <button type="submit">Create key</button>
+    {% endcall %}
+  </div>
+</section>
+
+{% if who.instance_admin and not (local and store == "me") %}
+<section>
+  <h2>Users</h2>
+  <div class="card stack">
+    {{ m.flash("users") }}
+    <table>
+      <thead><tr><th>Email</th><th>Name</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      {% for u in users %}
+        <tr>
+          <td>{{ u.email }}{% if u.is_instance_admin %} <span class="badge">instance admin</span>{% endif %}</td>
+          <td>{{ u.name }}</td>
+          <td>{% if u.active %}active{% else %}<span class="muted">inactive</span>{% endif %}</td>
+          <td><div class="row">
+            {% call m.post("password_link") %}
+              <input type="hidden" name="email" value="{{ u.email }}"><button class="secondary" type="submit">Password link</button>
+            {% endcall %}
+            {% if u.email != who.email %}{% call m.post("set_user_active") %}
+              <input type="hidden" name="email" value="{{ u.email }}">
+              <input type="hidden" name="active" value="{{ 'false' if u.active else 'true' }}">
+              <button class="{{ 'danger' if u.active else 'secondary' }}" type="submit">{{ 'Deactivate' if u.active else 'Activate' }}</button>
+            {% endcall %}{% endif %}
+          </div></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <h3>New user</h3>
+    {% call m.post("create_user") %}
+      <input type="email" name="email" placeholder="email" aria-label="email" required>
+      <input name="name" placeholder="name" aria-label="name">
+      <button type="submit">Create user</button>
+    {% endcall %}
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <h2>Teams</h2>
+  {{ m.flash("teams") }}
+  {% for slug, members in teams.items() %}
+  <div class="card stack">
+    <div class="row"><strong>{{ slug }}</strong>{% if who.teams.get(slug) %} <span class="badge">{{ who.teams[slug] }}</span>{% endif %}</div>
+    {{ m.flash("team:" ~ slug) }}
+    {% if members is string %}<p class="error small">{{ members }}</p>{% else %}
+    <table>
+      <tbody>
+      {% for email, role in members.items() %}
+        <tr><td>{{ email }}</td>
+          <td>{% if slug in admin_of %}{% call m.post("set_team_member") %}
+            <input type="hidden" name="team" value="{{ slug }}"><input type="hidden" name="email" value="{{ email }}">
+            {{ m.roles("role", ["admin", "member", "remove"], role) }}<button class="secondary" type="submit">Save</button>
+          {% endcall %}{% else %}{{ role }}{% endif %}</td></tr>
+      {% else %}
+        <tr><td class="muted">No members yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if slug in admin_of %}{% call m.post("set_team_member") %}
+      <input type="hidden" name="team" value="{{ slug }}">
+      <input type="email" name="email" placeholder="email" aria-label="email" required>
+      {{ m.roles("role", ["member", "admin"]) }}<button type="submit">Add to team</button>
+    {% endcall %}{% endif %}
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="muted">You aren't in any team.</p>
+  {% endfor %}
+  {% if who.instance_admin %}
+  <div class="card stack">
+    <h3>New team</h3>
+    {% call m.post("create_team") %}
+      <input name="slug" placeholder="slug" aria-label="slug" required pattern="[a-z0-9_]{1,48}">
+      <input name="name" placeholder="name" aria-label="name">
+      <input type="email" name="admin" placeholder="team admin email" aria-label="team admin email">
+      <button type="submit">Create team</button>
+    {% endcall %}
+  </div>
+  {% endif %}
+</section>
+
+{% if admin_of %}
+<section>
+  <h2>Projects</h2>
+  {{ m.flash("projects") }}
+  {% for pr, members in managed %}
+  <div class="card stack">
+    <div class="row">
+      <a href="/ui/r/{{ pr.ref }}"><strong>{{ pr.name }}</strong></a>
+      <span class="muted small">{{ pr.team }} · <span class="ref">{{ pr.ref }}</span></span>
+      {% if pr.archived %}<span class="badge">archived</span>{% endif %}
+      <span class="end">{% if pr.archived %}{% call m.post("unarchive_project") %}
+        <input type="hidden" name="project" value="{{ pr.ref }}"><button class="secondary" type="submit">Unarchive</button>
+      {% endcall %}{% else %}{% call m.post("archive_project", "Archive this project? Nobody can read it until it is unarchived.") %}
+        <input type="hidden" name="project" value="{{ pr.ref }}"><button class="danger" type="submit">Archive</button>
+      {% endcall %}{% endif %}</span>
+    </div>
+    {{ m.flash("project:" ~ pr.ref) }}
+    {% if members is string %}<p class="error small">{{ members }}</p>{% else %}
+    <table>
+      <tbody>
+      {% for email, role in members.items() %}
+        <tr><td>{{ email }}</td>
+          <td>{% call m.post("set_project_member") %}
+            <input type="hidden" name="project" value="{{ pr.ref }}"><input type="hidden" name="email" value="{{ email }}">
+            {{ m.roles("role", ["write", "read", "remove"], role) }}<button class="secondary" type="submit">Save</button>
+          {% endcall %}</td></tr>
+      {% else %}
+        <tr><td class="muted">No members yet; team admins can always write.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% call m.post("set_project_member") %}
+      <input type="hidden" name="project" value="{{ pr.ref }}">
+      <input type="email" name="email" placeholder="team member's email" aria-label="email" required>
+      {{ m.roles("role", ["write", "read"]) }}<button type="submit">Add to project</button>
+    {% endcall %}
+    {% endif %}
+  </div>
+  {% endfor %}
+  <div class="card stack">
+    <h3>New project</h3>
+    {% call m.post("create_project") %}
+      <select name="team" aria-label="team">{% for s in admin_of %}<option>{{ s }}</option>{% endfor %}</select>
+      <input name="slug" placeholder="slug" aria-label="slug" required pattern="[a-z0-9_]{1,48}">
+      <input name="name" placeholder="name" aria-label="name">
+      <button type="submit">Create project</button>
+    {% endcall %}
+  </div>
+</section>
+{% endif %}
+
+{% endif %}
+</div>
+{% endblock %}

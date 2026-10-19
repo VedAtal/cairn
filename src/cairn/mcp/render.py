@@ -49,6 +49,7 @@ def get(resp: GetResponse) -> str:
                      f" ({item.path}){' · injected' if item.inject else ''}\n{item.title}\n{item.body}")
             if item.keywords:
                 block += f"\nkeywords: {', '.join(item.keywords)}"
+            block += _links(item)
             for rev in item.history:
                 block += f"\n  rev {rev.rev} ({rev.at}): {rev.title} — {rev.body[:200]}"
         else:
@@ -59,6 +60,7 @@ def get(resp: GetResponse) -> str:
                 block += f"\n  child {child.ref}  {child.title} — {child.summary or ''}"
             for e in item.entries:
                 block += f"\n  {e.ref}  {e.type:<13} {e.title}"
+            block += _links(item)
             extra = item.counts.get("entries", 0) - len(item.entries)
             if extra > 0:
                 block += f"\n  … {extra} more entries (search within {item.ref})"
@@ -73,6 +75,11 @@ def get(resp: GetResponse) -> str:
     if resp.unreachable:
         text += f"\n(unreachable: {', '.join(resp.unreachable)})"
     return text
+
+
+def _links(item: Any) -> str:
+    out = "".join(f"\n  links to {link.ref} ({link.title}): {link.reason}" for link in item.links)
+    return out + "".join(f"\n  linked from {link.ref} ({link.title}): {link.reason}" for link in item.linked_from)
 
 
 def map_(resp: MapResponse) -> str:

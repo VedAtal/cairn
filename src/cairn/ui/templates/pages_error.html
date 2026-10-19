@@ -1,0 +1,11 @@
+<p class="error">{{ message }}{% if code == "conflict" %} <a href="">Reload</a> to edit the latest version.{% endif %}</p>
+{% if duplicates %}
+<ul class="list small">
+  {% for d in duplicates %}
+  <li><a href="/ui/r/{{ d.ref }}">{{ d.title }}</a> <code class="muted">{{ d.ref }}</code>
+    <span class="muted">similarity {{ d.score }}</span></li>
+  {% endfor %}
+</ul>
+<label class="row small"><input type="checkbox" name="distinct_from" value="{{ duplicates|map(attribute='ref')|join(',') }}">
+  These are different facts; save anyway</label>
+{% endif %}

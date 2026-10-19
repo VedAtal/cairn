@@ -1,0 +1,15 @@
+{% macro flash(at) %}{% if notice and notice.at == at %}
+<div class="notice{{ ' error' if notice.error }}" role="status">
+  {% if notice.error %}{{ notice.error }}{% else %}<span class="ok">{{ notice.text|linkrefs }}</span>
+  {% for label, value in notice.secrets or [] %}<div class="small muted">{{ label }}</div><div class="secret">{{ value }}</div>{% endfor %}
+  {% endif %}
+</div>
+{% endif %}{% endmacro %}
+
+{% macro post(op, confirm="") %}<form method="post" hx-post="" class="row"{% if confirm %} hx-confirm="{{ confirm }}"{% endif %}>
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="op" value="{{ op }}">{{ caller() }}
+</form>{% endmacro %}
+
+{% macro roles(name, options, current="") %}<select name="{{ name }}" aria-label="role">
+  {% for o in options %}<option value="{{ o }}"{% if o == current %} selected{% endif %}>{{ o }}</option>{% endfor %}
+</select>{% endmacro %}

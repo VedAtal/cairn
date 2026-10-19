@@ -568,7 +568,8 @@ Browsers can reach localhost, so the local server defends against web pages:
   any port, so the server replaces it with settings for its exact port.
 - **Hello-proof.** Before sending the token, a client verifies an HMAC challenge, which defeats port squatting.
 - **Web UI.** `cairn ui` opens the UI with a single-use ticket valid for 60 s, exchanged for an HttpOnly,
-  SameSite=Strict cookie.
+  SameSite=Lax cookie (every state change is a POST with a CSRF token; Strict would log people out when they
+  follow a link from chat or email).
 
 ### 10.4 Remote connection
 

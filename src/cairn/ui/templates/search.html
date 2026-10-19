@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% import "pages_macros.html" as m %}
+{% block title %}{% if q %}{{ q }} · {% endif %}Search · Cairn{% endblock %}
+{% block head %}{{ m.style() }}{% endblock %}
+{% block content %}
+<h1>Search</h1>
+<form class="row" action="/ui/search" method="get">
+  <input class="grow" type="search" name="q" value="{{ q }}" placeholder="stripe|webhook, retry|backoff" autofocus>
+  <select name="types">
+    <option value="">All types</option>
+    {% for t in types %}<option value="{{ t }}" {% if t in chosen %}selected{% endif %}>{{ t }}</option>{% endfor %}
+  </select>
+  {% if stores|length > 1 %}
+  <select name="store">
+    <option value="">All stores</option>
+    {% for s in stores %}<option value="{{ s }}" {% if s == store %}selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+  {% endif %}
+  <button type="submit">Search</button>
+</form>
+<p class="muted small">Commas separate concepts and <code>|</code> separates variants of one concept. Without commas,
+  each word is its own concept. Results rank by how many concepts an entry covers.</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% for hits in groups %}{% set h = hits[0] %}
+<section class="group">
+  <div><span class="muted">{{ h.store }} · {{ h.team }}/{{ h.project }} ·</span>
+    <a href="/ui/r/{{ h.node_ref }}"><strong>{{ h.node_title }}</strong></a> <code class="muted">{{ h.node_ref }}</code></div>
+  {% if h.node_summary %}<div class="muted small">{{ h.node_summary }}</div>{% endif %}
+  <ul class="list">
+    {% for hit in hits %}
+    <li><span class="badge">{{ hit.type }}</span> <a href="/ui/r/{{ hit.ref }}">{{ hit.title }}</a>
+      <div class="small muted"><code>{{ hit.ref }}</code> · matched: {{ hit.matched|join(", ") }} · verified {{ hit.verified_at }}</div></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endfor %}
+{% if q and not groups and not error %}
+<p class="muted">No matches. An empty result is normal: try other variants of each concept, or fewer concepts.</p>
+{% endif %}
+{% if unreachable %}<p class="error small">Unreachable: {{ unreachable|join(", ") }}</p>{% endif %}
+{% endblock %}
