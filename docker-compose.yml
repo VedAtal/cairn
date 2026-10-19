@@ -1,0 +1,39 @@
+# `make server` runs a hosted instance on :8000; `make test` runs the integration suite against this stack.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: cairn
+      POSTGRES_PASSWORD: cairn
+      POSTGRES_DB: cairn
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cairn"]
+      interval: 2s
+      retries: 30
+
+  server:
+    build: {context: ., target: server}
+    environment:
+      CAIRN_DB__URL: postgresql://cairn:cairn@postgres:5432/cairn
+      CAIRN_STORE_ALIAS: ${CAIRN_STORE_ALIAS:-acme}
+      CAIRN_SETUP_TOKEN: ${CAIRN_SETUP_TOKEN:-compose-setup-token}
+    ports: ["8000:8000"]
+    healthcheck:  # readiness (DB + schema), polled faster than the image's default
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  test:
+    build: {context: ., target: test}
+    profiles: [test]
+    init: true  # reaps the detached local servers that CLI tests start
+    command: ["pytest", "-q", "tests/integration", "tests/parity"]
+    environment:
+      CAIRN_TEST_SERVER: http://server:8000
+      CAIRN_TEST_SETUP_TOKEN: ${CAIRN_SETUP_TOKEN:-compose-setup-token}
+      CAIRN_TEST_PG_URL: postgresql://cairn:cairn@postgres:5432/cairn
+    depends_on:
+      server: {condition: service_healthy}
