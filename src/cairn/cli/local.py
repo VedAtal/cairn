@@ -110,6 +110,10 @@ def service_start(restart: bool = False) -> None:
 def service_stop() -> None:
     if MAC:
         _launchctl("bootout", _target())
+        for _ in range(50):  # bootout returns before launchd has torn the job down; wait so stop is synchronous
+            if not _launchctl("print", _target()):
+                break
+            time.sleep(0.1)
     else:
         _systemctl("stop", "cairn")
 
