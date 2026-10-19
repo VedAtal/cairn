@@ -33,6 +33,8 @@ from .config import (
 
 CACHE_MAX_AGE = 7 * 86400
 SOURCE = "git+https://github.com/VedAtal/cairn"  # not on PyPI; CAIRN_SOURCE overrides (another git URL or a path)
+# Tool installs ignore the project's lockfile and [tool.uv] settings, so pin the Python and the 7-day buffer here.
+UV_TOOL_FLAGS = ["--managed-python", "--python", "3.14", "--exclude-newer", "7 days"]
 
 
 def serve(host: str, port: int | None, local_mode: bool) -> None:
@@ -188,7 +190,7 @@ def _persist(argv: list[str]) -> None:
     if not uv or "/archive-v" not in cairn_bin():
         return
     source = os.environ.get("CAIRN_SOURCE", SOURCE)
-    if subprocess.run([uv, "tool", "install", "--managed-python", source]).returncode:
+    if subprocess.run([uv, "tool", "install", *UV_TOOL_FLAGS, source]).returncode:
         raise CliError(f"uv tool install {source} failed")
     tool_bin = subprocess.run([uv, "tool", "dir", "--bin"], capture_output=True, text=True).stdout.strip()
     os.execv(f"{tool_bin}/cairn", [f"{tool_bin}/cairn", *argv])
@@ -232,7 +234,8 @@ def uninstall() -> None:
 def upgrade() -> None:
     uv = shutil.which("uv")
     # --reinstall-package refreshes the package, so a git source fetches its latest commit.
-    if not uv or subprocess.run([uv, "tool", "upgrade", "cairnkb", "--reinstall-package", "cairnkb"]).returncode:
+    flags = ["--reinstall-package", "cairnkb", "--exclude-newer", "7 days"]
+    if not uv or subprocess.run([uv, "tool", "upgrade", "cairnkb", *flags]).returncode:
         raise CliError("uv tool upgrade cairnkb failed")
     if local.service_file().exists():
         local.service_start(restart=True)

@@ -1,5 +1,5 @@
-FROM python:3.13-slim AS base
-COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
+FROM python:3.14-slim AS base
+COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/venv PATH="/venv/bin:$PATH"
 WORKDIR /app
 

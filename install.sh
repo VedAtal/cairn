@@ -9,7 +9,8 @@ if ! command -v uv >/dev/null 2>&1; then
     PATH="$HOME/.local/bin:$PATH"  # where the uv installer puts uv
 fi
 
-uv tool install --managed-python "${CAIRN_SOURCE:-git+https://github.com/VedAtal/cairn}"
+# Tool installs ignore the project's lockfile and settings, so pass its Python and the 7-day buffer here.
+uv tool install --managed-python --python 3.14 --exclude-newer "7 days" "${CAIRN_SOURCE:-git+https://github.com/VedAtal/cairn}"
 cairn="$(uv tool dir --bin)/cairn"
 
 # Under `curl | sh` stdin is the script, so give the interactive questions the terminal when there is one.
