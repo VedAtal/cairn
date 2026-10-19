@@ -3,7 +3,7 @@ requires = ["uv_build>=0.9,<1"]
 build-backend = "uv_build"
 
 [project]
-name = "cairnkb"
+name = "cairn"
 version = "0.1.0"
 description = "Cairn: a shared knowledge store for AI coding agents."
 readme = "README.md"
@@ -28,9 +28,6 @@ cairn = "cairn.cli.main:main"
 
 [tool.uv]
 exclude-newer = "7 days"
-
-[tool.uv.build-backend]
-module-name = "cairn"
 
 [dependency-groups]
 dev = [

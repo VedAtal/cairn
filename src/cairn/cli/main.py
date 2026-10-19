@@ -273,9 +273,9 @@ def uninstall() -> None:
 def upgrade() -> None:
     uv = shutil.which("uv")
     # --reinstall-package makes a git source fetch its latest commit.
-    flags = ["--reinstall-package", "cairnkb", "--exclude-newer", "7 days"]
-    if not uv or subprocess.run([uv, "tool", "upgrade", "cairnkb", *flags]).returncode:
-        raise CliError("uv tool upgrade cairnkb failed")
+    flags = ["--reinstall-package", "cairn", "--exclude-newer", "7 days"]
+    if not uv or subprocess.run([uv, "tool", "upgrade", "cairn", *flags]).returncode:
+        raise CliError("uv tool upgrade cairn failed")
     if local.service_file().exists():
         local.service_start(restart=True)
     for args in harness.configured():  # the upgraded binary rewrites its own config

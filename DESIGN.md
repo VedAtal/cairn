@@ -36,7 +36,7 @@ benchmarks are listed in §18.
 
 | Topic | Decision |
 |---|---|
-| Name | Cairn (trail markers). Installed from the public GitHub repo `VedAtal/cairn`, not PyPI (package name `cairnkb`, since `cairn` is taken there); the command is `cairn`. |
+| Name | Cairn (trail markers). Installed from the public GitHub repo `VedAtal/cairn`, not PyPI; the package and the command are both `cairn`. Publishing to PyPI would need another name, since `cairn` is taken there. |
 | Modes | Local and remote are each **opt-in**. Remote-only runs nothing locally except the CLI; local-only has no remote. |
 | Remote (hosted) | Stateless app containers, **no persistent volume**, separate **managed Postgres**. Designed for ~1k users, ~100 teams, ≤ 1M entries, p95 search < 100 ms. |
 | Local | Same server on your machine, **SQLite**, launches at login. The MCP/LLM interface is identical to remote; the server handles everything. |
@@ -775,7 +775,7 @@ All paths are absolute, because IDEs launched from the GUI often lack `~/.local/
 
 **Updating:** `cairn upgrade`.
 
-1. Runs `uv tool upgrade cairnkb --reinstall-package cairnkb`, which fetches the repo's latest commit.
+1. Runs `uv tool upgrade cairn --reinstall-package cairn`, which fetches the repo's latest commit.
 2. Restarts the local service, which migrates on startup.
 3. Refreshes the hook, skill and MCP config if their format changed.
 
