@@ -16,6 +16,8 @@ from typing import Any
 import httpx
 import pytest
 
+from cairn.core.inject import HEADER
+
 from .conftest import SERVER, Api, World, free_port, write_config
 
 BIN = str(Path(shutil.which("cairn") or "cairn").resolve())
@@ -154,7 +156,7 @@ def test_inject_remote_cache_and_rejection(cli: Cli, world: World, flagged: str)
     fresh = hook_output(cli("inject", "--hook", "claude-code", stdin="{}"))
     context = fresh["hookSpecificOutput"]["additionalContext"]
     assert "systemMessage" not in fresh and flagged in context
-    assert context.startswith("Cairn knowledge flagged for every session.")
+    assert context.startswith(HEADER)
     cache = cli.cairn / "cache" / "inject.json"
     assert cache.stat().st_mode & 0o777 == 0o600
 

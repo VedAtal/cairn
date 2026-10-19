@@ -262,3 +262,11 @@ async def test_admins_purge_live_and_archived_entries(local_ui: UI) -> None:
     assert (await post(ui, f"/ui/r/{archived}/purge", node="")).headers["HX-Redirect"] == "/ui"
     got = (await api(ui, "get", refs=[live, archived]))["items"]
     assert [i["status"] for i in got] == ["not_found", "not_found"]
+
+
+async def test_status_counts_what_the_caller_can_read(local_ui: UI) -> None:
+    ui = local_ui
+    billing = await node(ui, await personal(ui), "billing", "Billing service")
+    await add(ui, billing, "Invoices are generated nightly by a cron job")
+    body = (await ui.client.get("/api/v1/status", headers={"Authorization": f"Bearer {ui.api_token}"})).json()
+    assert body["counts"] == {"entries": 1, "projects": 1} and body["git"] == {"enabled": False}

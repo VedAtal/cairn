@@ -1,5 +1,8 @@
 # Cairn
 
+Philosophy: Models and harnesses are at a point where they can implement better and faster than the majority of engineers,
+assuming they have the same context.
+
 Cairn stores the tribal knowledge your coding agents lack (gotchas, decisions, references) as small, searchable
 entries, so each new Claude Code or Codex session builds on what earlier sessions and teammates learned. Run it
 locally for yourself (SQLite), host it for a team (Postgres), or both; agents see one MCP server that merges the two.
@@ -14,6 +17,9 @@ curl -fsSL https://raw.githubusercontent.com/VedAtal/cairn/main/install.sh | sh 
 
 This installs the `cairn` CLI, sets up a local store and/or a remote, and configures Claude Code and Codex.
 Update with `cairn upgrade`; undo with `cairn uninstall` (your data is kept).
+
+On a Mac, [Cairn for Mac](https://github.com/VedAtal/cairn-mac) adds a menu bar app that shows both stores and
+controls the local server. It's optional: the CLI does everything it does.
 
 ## Connect to a team
 

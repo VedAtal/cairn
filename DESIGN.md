@@ -796,23 +796,25 @@ the service manager. `/healthz`'s `api_version` flags breaking skew between the 
 
 ---
 
-## 14. Cairn.app (macOS) — last priority
+## 14. Cairn for Mac
 
-Not built until the core works. The shape agreed so far:
+A menu bar app in its own public repo, `VedAtal/cairn-mac` (bundle ID `local.cairn`), built on swift-app-kit with
+only the Command Line Tools.
 
-- **Repo:** `VedAtal/cairn-mac` at `~/projects/cairn-mac`, a sibling of recall and snap. Built from source with
-  swift-app-kit's `setup.sh` and the Command Line Tools, following the kit's STANDARDS. Bundle ID `local.cairn`.
-- **A pure interface.** Install it before or after Cairn, delete it any time; Cairn's behavior doesn't change.
-  - It reads `~/.cairn` config to find the local server and the remote.
-  - It shows status for both: the local service, counts, git push age, and remote reachability and version.
-  - It calls `cairn service … --json` for control. It never spawns the server or writes plists.
-- **Kit change:** add `NSAppTransportSecurity → NSAllowsLocalNetworking = true` to the kit's generated Info.plist.
-  Since macOS 14, App Transport Security blocks plain HTTP to IP addresses by default.
-- **Prototype first:**
-  - a loopback `URLSession` request;
-  - `SMAppService.statusForLegacyPlist` on the CLI's plist;
-  - the label macOS shows for the service in Login Items;
-  - whether quitting the app triggers macOS's background-activity prompt.
+- **A pure interface.** The CLI owns the server and its login service. The app never writes plists or starts
+  `cairn serve`; it runs `cairn service start|stop|restart|install|uninstall` and `cairn git push`. Delete it any
+  time and Cairn's behavior doesn't change.
+- **Both stores always show**, each as Running/Connected with version and counts, or as Not configured, Not
+  running, Blocked in Login Items, Unreachable or API key rejected.
+  - **Local:** `/healthz`, then the hello-proof, then `/api/v1/status` with the token from `~/.cairn/run/token`.
+  - **Team:** the remote's `/api/v1/status` with the API key from `~/.cairn/credentials.toml`, asked directly
+    because remote-only users have no local server.
+  - Config comes from the CLI's `~/.cairn/config.toml` (its small TOML subset).
+- **Open Local UI / Open Team UI** log the browser in with a ticket, like `cairn ui`.
+- **Blocked in Login Items** comes from `SMAppService.statusForLegacyPlist`, shown only while the server is down.
+- **Prototyped on macOS 27.0.1:** plain HTTP to `127.0.0.1` works from a kit-built app with no ATS keys, so the kit
+  needed no change. `AssociatedBundleIdentifiers` and an ad-hoc signed bundle don't give the background item a
+  name or icon without a Team ID; it shows as `cairn`.
 
 ---
 
@@ -851,7 +853,7 @@ starts at login.
 - the web UI: search, browse, edit, archive, flags, users, membership, keys, change feed, purge;
 - the v1 importer and markdown/JSONL export.
 
-**After the core:** Cairn.app.
+**After the core:** Cairn for Mac (built; §14).
 
 **Later:**
 
@@ -921,11 +923,11 @@ integration against the compose stack (hosted server on Postgres, MCP client, lo
 runs everything.
 
 **Phase 2 so far:** the web UI with passwords (set-password links, no SMTP), `cairn ui` tickets, links and the
-graph view; git mode (§11, with the gaps it lists); write quotas and idempotency, the audit log, hourly
+graph view; git mode (§11, with the gaps it lists); Cairn for Mac (§14); write quotas and idempotency, the audit log, hourly
 maintenance, login throttling, `purge_entry` and `cairn git purge`, the hello-proof and the resume-hash dedup; path
 refs, the postings budget and AND-mode fallback, node-only search matches, and cross-project moves (`admin move`, for
 admins of both teams).
-Cairn.app is phase 3.
+
 
 **Deviations from the design:**
 

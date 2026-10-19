@@ -7,7 +7,7 @@ from fastapi import APIRouter, Query, Request
 
 from .. import __version__
 from ..core import accounts, admin
-from ..core.access import Principal
+from ..core.access import Principal, scope_for
 from ..core.inject import render
 from ..core.write import WriteError
 from ..models import (
@@ -115,7 +115,9 @@ async def ui_ticket(request: Request) -> dict[str, str]:
 async def status(request: Request) -> dict[str, Any]:
     state = request.app.state
     remote = state.settings.remote()
-    return {"store": state.settings.alias, "mode": state.settings.mode, "version": __version__,
+    async with state.engine.connect() as conn:
+        counts = await admin.counts(conn, sorted((await scope_for(conn, _principal(request))).readable))
+    return {"store": state.settings.alias, "mode": state.settings.mode, "version": __version__, "counts": counts,
             "remote": remote.url if remote else None,
             "git": state.git.status() if state.git else {"enabled": False}}
 

@@ -183,6 +183,15 @@ def ui(use_remote: bool) -> None:
     webbrowser.open(url)
 
 
+def service(action: str) -> None:
+    if action == "status":
+        print(json.dumps(local.status()))
+    elif action == "restart":
+        local.service_start(restart=True)
+    else:
+        getattr(local, f"service_{action}")()
+
+
 def _refuse_second_remote(replace: bool) -> None:
     if not replace and read_toml("config.toml").get("remote"):
         raise CliError("a remote is already configured (one is allowed); use --replace or cairn remote remove")
@@ -352,9 +361,8 @@ def _parser() -> argparse.ArgumentParser:
     p.set_defaults(run=lambda a: harness.setup(a.harness, a.dry_run, a.uninstall, a.allow_writes))
 
     p = sub.add_parser("service", help="the local server's login service")
-    p.add_argument("action", choices=["install", "uninstall", "start", "stop", "status"])
-    p.set_defaults(run=lambda a: print(json.dumps(local.status())) if a.action == "status"
-                   else getattr(local, f"service_{a.action}")())
+    p.add_argument("action", choices=["install", "uninstall", "start", "restart", "stop", "status"])
+    p.set_defaults(run=lambda a: service(a.action))
 
     p = sub.add_parser("install", help="set up local and/or remote, then the harnesses")
     p.add_argument("--local", action="store_true")

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from cairn.cli import config, harness, local
+from cairn.cli.main import main
 
 BIN = "/opt/my tools/cairn"
 MATCHER = "startup|resume|clear|compact|fork"
@@ -286,3 +287,10 @@ def test_rewire_follows_local_and_remote_changes(home: Path) -> None:
     config.update_toml("config.toml", "remote", None)
     cli_main.rewire()
     assert not claude_json.exists()  # it held only Cairn's entry
+
+
+def test_service_restart_kickstarts_the_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[bool] = []
+    monkeypatch.setattr(local, "service_start", lambda restart=False: calls.append(restart))
+    main(["service", "restart"])
+    assert calls == [True]

@@ -4,6 +4,8 @@ import os
 
 import httpx
 
+from cairn.core.inject import HEADER
+
 from .conftest import SERVER, Api, World
 
 
@@ -93,7 +95,7 @@ def test_inject(world: World) -> None:
     assert ref not in bob.post("/inject", {})["text"]
     alice.admin("flag", ref=ref)
     text = bob.post("/inject", {})["text"]
-    assert text.startswith("Cairn knowledge flagged for every session.")
+    assert text.startswith(HEADER)
     assert f"practice {ref} (" in text and f"## {world.alias} · platform" in text
     assert len(bob.post("/inject", {"budget": 500})["text"].encode()) <= 500
     alice.admin("unflag", ref=ref)
