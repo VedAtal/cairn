@@ -226,7 +226,7 @@ async def test_edit_keeps_links_the_page_cannot_show(local_ui: UI) -> None:
     page = (await ui.client.get(f"/ui/r/{entry}")).text
     assert "Stripe retries webhooks for 72 hours" in page and "the cron replays failures" in page
     assert f'name="was0" value="{target}"' in page
-    shown = {"was0": target, "why0": "the cron replays failures"}
+    shown = {"was0": target}
     assert (await post(ui, f"/ui/r/{entry}/edit", **form | shown | {"base_revision": "2"})).status_code == 204
     assert "the cron replays failures" not in (await ui.client.get(f"/ui/r/{entry}")).text
 

@@ -134,6 +134,7 @@ class EntryFields(BaseModel):
     body: str | None = None
     keywords: list[str] | None = None
     links: list[LinkIn] | None = None
+    unlink: list[str] | None = None
 
 
 class NodeFields(BaseModel):
@@ -142,6 +143,7 @@ class NodeFields(BaseModel):
     summary: str | None = None
     keywords: list[str] | None = None
     links: list[LinkIn] | None = None
+    unlink: list[str] | None = None
 
 
 WriteOp = Literal["add", "update", "archive", "unarchive", "verify", "move", "create_node", "update_node"]

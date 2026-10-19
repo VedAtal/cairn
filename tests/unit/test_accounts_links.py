@@ -74,9 +74,12 @@ async def test_links_show_both_ways_and_respect_access(org: Org) -> None:
     await w.write(org.writer, "archive", ref=target)
     [item] = await w.get(org.reader, source)
     assert [link.ref for link in item.links] == [org.node]
-    await w.write(org.writer, "update", ref=source, base_revision=1, entry=EntryFields(links=[]))
+    await w.write(org.writer, "unarchive", ref=target)
+    third = await w.add(org.writer, org.node, "Payouts settle two days after capture")
+    await w.write(org.writer, "update", ref=source, base_revision=1, entry=EntryFields(
+        links=[LinkIn(to=third, reason="refunds wait for settlement")], unlink=[org.node]))
     [item] = await w.get(org.reader, source)
-    assert item.links == [] and item.rev == 1
+    assert [link.ref for link in item.links] == [target, third] and item.rev == 1
 
 
 async def test_changes_archived_and_graph(org: Org) -> None:

@@ -44,18 +44,17 @@ def concepts(q: str) -> list[str]:
     return (_split(q) if "," in q else q.split())[:8]
 
 
-def _links(f: dict[str, str]) -> list[LinkIn] | None:
-    new = [LinkIn(to=v.strip(), reason=f.get("reason" + k[2:], ""))
-           for k, v in f.items() if k[:2] == "to" and k[2:].isdigit() and v.strip()]
-    shown = [(v, f.get("why" + k[3:], "")) for k, v in f.items() if k[:3] == "was"]
-    # resending unchanged rows would drop links to targets this reader can't see (archived or another project)
-    return None if [(link.to, link.reason) for link in new] == shown else new
+def _links(f: dict[str, str]) -> dict[str, Any]:
+    rows = [LinkIn(to=v.strip(), reason=f.get("reason" + k[2:], ""))
+            for k, v in f.items() if k[:2] == "to" and k[2:].isdigit() and v.strip()]
+    kept = {link.to for link in rows}
+    return {"links": rows or None, "unlink": [v for k, v in f.items() if k[:3] == "was" and v not in kept] or None}
 
 
 def _entry(f: dict[str, str]) -> EntryFields:
     return EntryFields.model_validate({
         "type": f.get("type") if f.get("type") in ENTRY_TYPES else None, "title": f.get("title", ""),
-        "body": f.get("body", ""), "keywords": _split(f.get("keywords", "")), "links": _links(f)})
+        "body": f.get("body", ""), "keywords": _split(f.get("keywords", "")), **_links(f)})
 
 
 def _write_request(action: str, ref: str, f: dict[str, str]) -> WriteRequest:
@@ -73,7 +72,7 @@ def _write_request(action: str, ref: str, f: dict[str, str]) -> WriteRequest:
                             node_fields=fields)
     if action == "update-node":
         fields = NodeFields(title=f.get("title", ""), summary=f.get("summary", ""),
-                            keywords=_split(f.get("keywords", "")), links=_links(f))
+                            keywords=_split(f.get("keywords", "")), **_links(f))
         return WriteRequest(op="update_node", ref=ref, base_revision=rev, node_fields=fields)
     if action in ("archive", "unarchive", "verify", "move"):
         return WriteRequest.model_validate({"op": action, "ref": ref, "node": f.get("node") or None,

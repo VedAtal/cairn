@@ -55,7 +55,7 @@
   {% for i in range(links|length + 2) %}{% set l = links[i] if i < links|length else none %}
   <div class="row linkrow"><input name="to{{ i }}" placeholder="target ref" value="{{ l.ref if l else '' }}">
     <input class="grow" name="reason{{ i }}" placeholder="reason" value="{{ l.reason if l else '' }}">
-    {% if l %}<input type="hidden" name="was{{ i }}" value="{{ l.ref }}"><input type="hidden" name="why{{ i }}" value="{{ l.reason }}">{% endif %}</div>
+    {% if l %}<input type="hidden" name="was{{ i }}" value="{{ l.ref }}">{% endif %}</div>
   {% endfor %}
 </fieldset>
 {% endmacro %}

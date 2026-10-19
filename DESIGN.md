@@ -154,7 +154,7 @@ All tables are defined once in SQLAlchemy Core.
 | `nodes` | id, uid, project_id, parent_id, slug, path, depth ≤ 8, title, summary ≤ 400, keywords ≤ 12, rev, inject, archived_at, archived_by, archive_reason, former_paths, an_* | ID is identity; `path` is a derived label. |
 | `entries` | id, uid, node_id, project_id (denormalized), type, title ≤ 160, body ≤ 2,000, keywords ≤ 8, rev, inject, origin `agent\|human`, created/updated/verified _by/_at, archived_at, archived_by, archive_reason, is_searchable, an_title, an_kw, an_body | One fact per row. The title states the claim. |
 | `entry_revisions` | entry_id, rev, full snapshot, by, at | History, undo, and optimistic locking (`base_revision`). |
-| `links` | from_ref, to_ref, reason | Cross-links. A reason is required. Hidden unless the reader can see both ends and both are active. |
+| `links` | from_ref, to_ref, reason | Cross-links. A reason is required. Writes add or re-reason links; only `unlink` removes one. Hidden unless the reader can see both ends and both are active. |
 | `term_df` | term, project_id, df | Document frequency per project, counting active entries only. |
 | `vocab` | term | Insert-only token list for substring expansion. Opaque `zz…` tokens are never inserted. |
 | `change_log` | seq, project_id, ref, op, by, at, summary | The feed that replaces v1's git-diff review. Filtered by `AccessScope`. |
@@ -445,7 +445,7 @@ Cairn before guessing" reminder.
 | `search` | auto-allowed | Headlines grouped by node, ranked by concept coverage; no bodies. | `concepts[1..8]`, `stores[]`, `types[]`, `within`, `limit` (default 12) |
 | `get` | auto-allowed | Batch read up to 20 refs. An entry gives its full body, keywords, rev and verified date. A node gives an outline: summary, ≤ 30 children, ≤ 30 entry headlines, counts. An archived ref gives a one-line tombstone. | `refs[]`, `history` |
 | `map` | auto-allowed | Stores, readable projects (with your role) and the node tree: refs, titles, one-line summaries, counts. | `store`, `root`, `depth`, `filter` |
-| `write` | **prompts** | Ops: `add`, `update`, `archive`, `unarchive`, `verify`, `move` (within a project), `create_node`, `update_node`. The description states the write bar and the placement rule. | `op`, `node`/`project`/`ref`, `base_revision`, `entry{type, title, body, keywords, links[{to, reason}]}`, `node_fields{…}`, `reason`, `distinct_from[]` |
+| `write` | **prompts** | Ops: `add`, `update`, `archive`, `unarchive`, `verify`, `move` (within a project), `create_node`, `update_node`. The description states the write bar and the placement rule. | `op`, `node`/`project`/`ref`, `base_revision`, `entry{type, title, body, keywords, links[{to, reason}], unlink[]}`, `node_fields{…}`, `reason`, `distinct_from[]` |
 | `admin` | **always prompts** | Ops: users, teams, team admins, projects, membership, API keys, flag/unflag, cross-project moves, purge. The description says: "Every call changes access or what other people see. Confirm with the user before calling." | `op`, op-specific fields |
 
 - **Output cap.** Every tool result is capped at 8,000 characters. `get` fills refs in order until the cap, then lists

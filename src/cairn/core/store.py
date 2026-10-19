@@ -22,7 +22,6 @@ from ..models import (
     HitOut,
     InjectGroup,
     Item,
-    LinkIn,
     MapNode,
     MapProject,
     MapRequest,
@@ -236,13 +235,12 @@ class SqlStore:
         if req.op == "add":
             if node is None or req.entry is None:
                 raise write.WriteError("add needs node and entry")
-            new_id = await write.add_entry(conn, scope, node, req.entry, distinct, self._links(req.entry.links))
+            new_id = await write.add_entry(conn, scope, node, req.entry, distinct, self._links(req.entry))
             return WriteResponse(ok=True, ref=f"{self.alias}:e{new_id}", rev=1, message="added")
         if req.op == "update":
             t = need_target("e")
             fields = req.entry or EntryFields()
-            rev = await write.update_entry(conn, scope, t.id, req.base_revision, fields, distinct,
-                                           self._links(fields.links))
+            rev = await write.update_entry(conn, scope, t.id, req.base_revision, fields, distinct, self._links(fields))
             return WriteResponse(ok=True, ref=str(t), rev=rev, message="updated")
         if req.op in ("archive", "unarchive"):
             t = need_target("en")
@@ -258,12 +256,12 @@ class SqlStore:
             return WriteResponse(ok=True, ref=str(t), message="moved")
         if req.op == "create_node":
             node_fields = req.node_fields or NodeFields()
-            new_id = await write.create_node(conn, scope, project, node, node_fields, self._links(node_fields.links))
+            new_id = await write.create_node(conn, scope, project, node, node_fields, self._links(node_fields))
             return WriteResponse(ok=True, ref=f"{self.alias}:n{new_id}", rev=1, message="created")
         t = need_target("n")
         node_fields = req.node_fields or NodeFields()
         rev = await write.update_node(conn, scope, t.id, req.base_revision, node_fields,
-                                      self._links(node_fields.links))
+                                      self._links(node_fields))
         return WriteResponse(ok=True, ref=str(t), rev=rev, message="updated")
 
     async def admin(self, p: Principal, req: AdminRequest) -> AdminResponse:
@@ -290,9 +288,11 @@ class SqlStore:
         async with self.engine.connect() as conn:
             return await views.graph(conn, await scope_for(conn, p), self.alias, self._ref(project, "p").id)
 
-    def _links(self, given: list[LinkIn] | None) -> Links:
-        return None if given is None else [(r.kind, r.id, link.reason)
-                                           for link in given for r in [self._ref(link.to, "en")]]
+    def _links(self, fields: EntryFields | NodeFields) -> Links:
+        if fields.links is None and fields.unlink is None:
+            return None
+        return ([(r.kind, r.id, link.reason) for link in fields.links or [] for r in [self._ref(link.to, "en")]],
+                [(r.kind, r.id) for r in (self._ref(ref, "en") for ref in fields.unlink or [])])
 
 
 def _keep(node: MapNode, flt: str) -> bool:
