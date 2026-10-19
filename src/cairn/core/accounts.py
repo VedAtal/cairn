@@ -5,6 +5,7 @@ import base64
 import hashlib
 import hmac
 import secrets
+import time
 from datetime import timedelta
 
 from sqlalchemy import select, update
@@ -17,6 +18,8 @@ from .write import WriteError, now
 SESSION_TTL, TICKET_TTL, LINK_TTL = timedelta(days=7), timedelta(seconds=60), timedelta(days=7)
 MIN_PASSWORD = 10
 _N, _R, _P = 2**14, 8, 1
+LOGIN_LIMIT, LOGIN_WINDOW = 10, 900.0
+_failures: dict[str, list[float]] = {}  # per replica, so approximate by design
 _DUMMY = "scrypt$16384$8$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
 
@@ -54,12 +57,28 @@ async def _consume(conn: AsyncConnection, token: str, kind: str) -> int | None:
     return int(row.user_id) if row else None
 
 
+def _recent_failures(email: str) -> list[float]:
+    cutoff = time.monotonic() - LOGIN_WINDOW
+    recent = [t for t in _failures.pop(email, []) if t > cutoff]
+    if recent:
+        _failures[email] = recent
+    return recent
+
+
 async def login(conn: AsyncConnection, email: str, password: str) -> str | None:
+    email = email.strip().lower()
+    if len(_recent_failures(email)) >= LOGIN_LIMIT:
+        raise AccessError("too many failed logins for this account; try again in 15 minutes", "throttled")
     user = (await conn.execute(select(users.c.id, users.c.password_hash).where(
-        users.c.email == email.strip().lower(), users.c.active))).first()
+        users.c.email == email, users.c.active))).first()
     # Hash even for unknown emails, so timing doesn't reveal which accounts exist.
     if not await asyncio.to_thread(verify_password, password, user.password_hash if user else None) or user is None:
+        if len(_failures) > 10_000:
+            for key in list(_failures):
+                _recent_failures(key)
+        _failures.setdefault(email, []).append(time.monotonic())
         return None
+    _failures.pop(email, None)
     return await _issue(conn, user.id, "web_session", SESSION_TTL)
 
 

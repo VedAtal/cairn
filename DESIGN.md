@@ -146,7 +146,7 @@ All tables are defined once in SQLAlchemy Core.
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `users` | id, email, display_name, password_hash (argon2id), is_instance_admin, active | Exactly one instance admin. Local mode has one row, `local`. |
+| `users` | id, email, display_name, password_hash (scrypt), is_instance_admin, active | Exactly one instance admin. Local mode has one row, `local`. |
 | `teams` | id, uid, slug, name, archived_at | |
 | `team_members` | team_id, user_id, role `admin\|member` | |
 | `projects` | id, uid, team_id, slug, name, archived_at, searchable_entries | Access boundary only. |
@@ -358,10 +358,11 @@ Next: get(refs=[…]) for the entries you need.
 
 Steps 2–6 run in one transaction (`BEGIN IMMEDIATE` on SQLite).
 
-0. **Quota and idempotency** (remote).
-   - Lock the key's row and count its revisions in the window.
-   - If `(key, op_id)` was already applied, return the stored result.
-   - `RemoteStore` generates an `op_id` per proxied write and reuses it on retry. Results are kept for 24 h.
+0. **Quota and idempotency.**
+   - On a hosted store, lock the user's row and count their `change_log` rows in the last hour; at 500 the write
+     returns 429 `quota`.
+   - If `(user, op_id)` was already applied, return the stored result.
+   - `RemoteStore` generates an `op_id` per proxied write and reuses it on its one retry. Results are kept for 24 h.
 1. **Normalize:** NFC, LF line endings, strip zero-width and bidi control characters, UTC millisecond timestamps.
 2. **Limits:**
    - Entry: title ≤ 160, body ≤ 2,000, keywords ≤ 8.
@@ -631,6 +632,10 @@ the machine's own `mirror.git`.
 - A URL source becomes the push remote only if it passes the public-repository check.
 - Unit tests check `render(restore(render(DB))) == render(DB)`.
 
+**Leaked secrets:** rotate the secret, `admin purge_entry`, then `cairn git purge`. After a typed confirmation, it
+replaces the mirror's history with one commit of the current tree. It force-pushes that with a lease on the old head
+first, so a refused push changes nothing. The git host may keep old objects until it garbage-collects them.
+
 **Remote safety:**
 
 - Public remotes are refused (checked anonymously through the GitHub and GitLab APIs; other hosts need
@@ -639,7 +644,7 @@ the machine's own `mirror.git`.
 
 **Not built yet:**
 
-- `cairn git doctor` and `cairn git purge` (a history rewrite after a leaked secret);
+- `cairn git doctor`;
 - a hook `systemMessage` on long failure or divergence, and status in the UI and the Mac app;
 - `--with-history` (replaying older revisions from the git log);
 - gitleaks on outgoing commits;
@@ -697,13 +702,9 @@ transaction mode.
 - Request-rate buckets are kept in memory per replica, which is approximate by design. Write quotas are exact (§7).
 - No server cache of injection payloads.
 
-**Maintenance:** no job queue. A `schedules` table holds a few periodic tasks:
-
-- expire sessions and keys;
-- prune logs past retention (audit 400 d, search log 30 d, `change_log` 400 d);
-- run the analyzer backfill during a migration.
-
-Each replica runs a small loop and claims due tasks by compare-and-set, so each task runs on one replica.
+**Maintenance:** no job queue. Once an hour, one replica deletes expired sessions, tickets and links, idempotency
+results older than a day, and `change_log` and `audit_log` rows older than 400 days. Every replica runs a small loop,
+and a compare-and-set on a `meta` row picks the one that runs.
 
 **Bootstrap and accounts:**
 
@@ -715,15 +716,15 @@ Each replica runs a small loop and claims due tasks by compare-and-set, so each 
 
 **Auth:**
 
-- Passwords: argon2id, with login throttling.
+- Passwords: scrypt (stdlib), with login throttling: 10 failures per account in 15 minutes, counted per replica.
 - API keys: SHA-256 hashed, shown once, prefixed, expiring, revocable, last use tracked.
 - Token checks are cached for 30 s only on `initialize`, `server/discover` and `tools/list`; every `tools/call`
   re-checks.
 
 **Also:**
 
-- An audit log (users, teams, membership, keys, flags, purges, archives), written in the same transaction as the
-  change.
+- An audit log of every admin op that changes something (users, teams, membership, keys, flags, purges, archives),
+  written in the same transaction as the change and readable by the instance admin through `admin audit`.
 - JSON logs.
 - OpenTelemetry through `OTEL_*`, off by default.
 
@@ -907,10 +908,11 @@ SQLite and Postgres (the oracle is the two engines agreeing, plus golden expecta
 compose stack (hosted server on Postgres, MCP client, local federation, CLI). `make test-all` runs everything.
 
 **Phase 2 so far:** the web UI with passwords (set-password links, no SMTP), `cairn ui` tickets, links and the
-graph view; git mode (§11, with the gaps it lists).
+graph view; git mode (§11, with the gaps it lists); write quotas and idempotency, the audit log, hourly
+maintenance, login throttling, `purge_entry` and `cairn git purge`, the hello-proof and the resume-hash dedup.
 
-**Still to come:** quotas and idempotency, the audit log and `schedules`, purge, the hello-proof, path refs, the
-resume-hash dedup, the postings budget and AND-mode fallback, node-only search matches, and cross-project moves.
+**Still to come:** path refs, the postings budget and AND-mode fallback, node-only search matches, and cross-project
+moves.
 Cairn.app is phase 3.
 
 **Deviations from the design:**
@@ -921,4 +923,6 @@ Cairn.app is phase 3.
   without checking adjacency. A single-word query also carries its unstemmed form, so `apns` finds `APNs`.
 - **The local server's Host/Origin checks** live in Cairn's own middleware; the MCP SDK's DNS-rebinding protection is
   turned off in both modes, since hosted auth is the bearer token.
+- **Maintenance** uses one `meta` row instead of a `schedules` table, and there is no search log yet.
+- **Passwords** use stdlib scrypt instead of argon2id, which would be a new dependency.
 - **Bootstrap** can use a known `CAIRN_SETUP_TOKEN` (for automated deploys and tests) instead of the logged one.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import getpass
+import hashlib
 import json
 import os
 import select
@@ -24,7 +25,7 @@ from .config import (
     fetch,
     home,
     local_port,
-    local_token,
+    proven_token,
     read_toml,
     remote,
     update_toml,
@@ -53,9 +54,9 @@ def auth_header(server: str | None) -> None:
     if server and server.rstrip("/") != (current := harness.endpoint()):
         raise CliError(f"this harness is set up for {server}, but Cairn now serves {current}; run cairn setup")
     if port := local_port():
-        token = local_token()
         with contextlib.suppress(CliError, OSError):
             local.ensure_running(port, 5.0)
+        token = proven_token(port)
     elif found := remote():
         token = found[1]
     else:
@@ -68,10 +69,10 @@ def inject(budget: int) -> dict[str, Any]:
     deadline = time.monotonic() + 4.0
     cache = home() / "cache" / "inject.json"
     try:
-        _drain_stdin()
+        given = _hook_input()
         if port := local_port():
-            base, token = f"http://127.0.0.1:{port}", local_token()
             local.ensure_running(port, min(3.0, deadline - time.monotonic()))
+            base, token = f"http://127.0.0.1:{port}", proven_token(port, max(0.2, deadline - time.monotonic()))
         elif found := remote():
             base, token = found
         else:
@@ -81,7 +82,7 @@ def inject(budget: int) -> dict[str, Any]:
         if status == 200:
             text: str = body["text"]
             write_private(cache, json.dumps(body))
-            return _hook(text)
+            return _hook("" if _unchanged_on_resume(given, text) else text)
         if status in (401, 403):
             cache.unlink(missing_ok=True)
             return _hook("", "Cairn: credentials rejected; run cairn remote add")
@@ -106,10 +107,27 @@ def _hook(context: str, message: str | None = None) -> dict[str, Any]:
     return out
 
 
-def _drain_stdin() -> None:
+def _hook_input() -> dict[str, Any]:
     with contextlib.suppress(OSError, ValueError):
         if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 0.2)[0]:
-            os.read(sys.stdin.fileno(), 1 << 20)
+            data = json.loads(os.read(sys.stdin.fileno(), 1 << 20) or b"{}")
+            return data if isinstance(data, dict) else {}
+    return {}
+
+
+def _unchanged_on_resume(given: dict[str, Any], text: str) -> bool:
+    session = given.get("session_id")
+    if not isinstance(session, str) or not session:
+        return False
+    marker = home() / "cache" / f"session-{hashlib.sha256(session.encode()).hexdigest()[:32]}"
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    # A resumed session still holds the context it was given, so only send it again if it changed.
+    same = given.get("source") == "resume" and marker.exists() and marker.read_text() == digest
+    write_private(marker, digest)
+    for old in marker.parent.glob("session-*"):
+        if old.stat().st_mtime < time.time() - CACHE_MAX_AGE:
+            old.unlink(missing_ok=True)
+    return same
 
 
 def remote_add(url: str, key: str | None, replace: bool) -> None:
@@ -150,8 +168,8 @@ def remote_bootstrap(url: str, token: str, email: str, name: str | None) -> None
 
 def ui(use_remote: bool) -> None:
     if (port := local_port()) and not use_remote:
-        base, token = f"http://127.0.0.1:{port}", local_token()
         local.ensure_running(port, 5.0)
+        base, token = f"http://127.0.0.1:{port}", proven_token(port)
     elif found := remote():
         base, token = found
     else:
@@ -303,6 +321,8 @@ def _parser() -> argparse.ArgumentParser:
     group.add_parser("disable").set_defaults(run=lambda a: gitmode.disable())
     group.add_parser("status").set_defaults(run=lambda a: gitmode.status())
     group.add_parser("push").set_defaults(run=lambda a: gitmode.push())
+    group.add_parser("purge", help="rewrite the mirror's history after a purge").set_defaults(
+        run=lambda a: gitmode.purge())
     p = sub.add_parser("restore", help="rebuild an empty local store from a git mirror")
     p.add_argument("source", nargs="?", help="git URL or path; omit to use this machine's ~/.cairn/mirror.git")
     p.add_argument("--port", type=int)

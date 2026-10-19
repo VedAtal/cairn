@@ -125,8 +125,11 @@ async def login_page(request: Request, ticket: str | None = None, next: str = "/
 @router.post("/login")
 async def login_submit(request: Request) -> Response:
     fields = await form(request)
-    async with request.app.state.engine.begin() as conn:
-        session = await accounts.login(conn, fields.get("email", ""), fields.get("password", ""))
+    try:
+        async with request.app.state.engine.begin() as conn:
+            session = await accounts.login(conn, fields.get("email", ""), fields.get("password", ""))
+    except AccessError as exc:
+        return render(request, "login.html", 429, error=str(exc), next=fields.get("next", "/ui"))
     if not session:
         return render(request, "login.html", 401, error="Wrong email or password.", next=fields.get("next", "/ui"))
     return _session_response(request, session, fields.get("next", "/ui"))

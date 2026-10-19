@@ -159,6 +159,7 @@ class WriteRequest(BaseModel):
     node_fields: NodeFields | None = None
     reason: str | None = None
     distinct_from: list[str] = []
+    op_id: str | None = Field(None, max_length=64)
 
 
 class Duplicate(BaseModel):

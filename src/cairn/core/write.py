@@ -4,7 +4,7 @@ import math
 import re
 import unicodedata
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import Row, delete, func, select, text, update
@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..db.schema import change_log, entries, entry_revisions, links, nodes, term_df, vocab
+from ..db.schema import change_log, entries, entry_revisions, links, nodes, term_df, users, vocab
 from ..models import ENTRY_TYPES, Duplicate, EntryFields, NodeFields
 from .access import AccessError, NotFound, Scope, inject_locked
 from .analyzer import analyze, analyzed_text, is_opaque
@@ -22,6 +22,7 @@ MAX_TITLE, MAX_BODY, MAX_KEYWORDS, MAX_SUMMARY, MAX_NODE_KEYWORDS, MAX_DEPTH = 1
 MAX_LINKS, MAX_REASON = 10, 200
 type Links = tuple[list[tuple[str, int, str]], list[tuple[str, int]]] | None
 DUP_THRESHOLD = 0.6
+WRITE_QUOTA = 500  # changes per user per hour on a hosted store
 _SLUG = re.compile(r"^[a-z0-9_]{1,48}$")
 _INVISIBLE = re.compile("[​-‏‪-‮⁠-⁤⁦-⁩﻿]")
 _SECRETS = {
@@ -147,6 +148,14 @@ async def _fts(conn: AsyncConnection, table: str, row_id: int, cols: dict[str, s
 async def _log(conn: AsyncConnection, project_id: int, ref: str, op: str, user: int, summary: str) -> None:
     await conn.execute(change_log.insert().values(project_id=project_id, ref=ref, op=op, by=user, at=now(),
                                                   summary=summary[:200]))
+
+
+async def check_quota(conn: AsyncConnection, user_id: int, limit: int) -> None:
+    await conn.execute(select(users.c.id).where(users.c.id == user_id).with_for_update())  # exact under concurrency
+    recent = (await conn.execute(select(func.count()).select_from(change_log).where(
+        change_log.c.by == user_id, change_log.c.at > now() - timedelta(hours=1)))).scalar_one()
+    if recent >= limit:
+        raise WriteError(f"write quota reached ({limit} changes an hour); try again later", "quota")
 
 
 async def get_node(conn: AsyncConnection, scope: Scope, node_id: int, lock: bool = False) -> Row[Any]:
@@ -310,6 +319,27 @@ async def archive(conn: AsyncConnection, scope: Scope, kind: str, item_id: int, 
     await conn.execute(update(nodes).where(nodes.c.id == item_id).values(**values))
     await refresh_searchable(conn, node.project_id, node.path)
     await _log(conn, node.project_id, f"n{item_id}", op, user, node.title)
+
+
+async def purge_entry(conn: AsyncConnection, scope: Scope, entry_id: int) -> None:
+    entry, node = await get_entry(conn, scope, entry_id, lock=True)
+    scope.require_team_admin(scope.project_team[node.project_id])
+    tokens = _entry_tokens(entry._mapping)
+    if entry.is_searchable:
+        await _apply_df(conn, entry.project_id, _delta(tokens, -1))
+    await conn.execute(delete(links).where(((links.c.from_kind == "e") & (links.c.from_id == entry_id))
+                                           | ((links.c.to_kind == "e") & (links.c.to_id == entry_id))))
+    await conn.execute(delete(entry_revisions).where(entry_revisions.c.entry_id == entry_id))
+    await _fts(conn, "entries", entry_id, None)
+    await conn.execute(delete(entries).where(entries.c.id == entry_id))
+    # Purges are for leaked secrets and legal requests, so drop the words that only this entry used.
+    await conn.execute(delete(term_df).where(term_df.c.term.in_(tokens), term_df.c.df <= 0))
+    await conn.execute(delete(vocab).where(vocab.c.term.in_(tokens),
+                                           ~select(term_df.c.term).where(term_df.c.term == vocab.c.term).exists()))
+    ref = f"e{entry_id}"
+    await conn.execute(update(change_log).where(change_log.c.project_id == entry.project_id, change_log.c.ref == ref)
+                       .values(summary="(purged)"))
+    await _log(conn, entry.project_id, ref, "purge", scope.principal.user_id, "(purged)")
 
 
 async def refresh_searchable(conn: AsyncConnection, project_id: int, path: str) -> None:

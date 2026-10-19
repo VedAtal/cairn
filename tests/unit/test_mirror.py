@@ -249,3 +249,23 @@ def test_cli_restore_rebuilds_the_store_from_its_mirror(tmp_path: Path) -> None:
         assert cairn("restore").returncode == 1  # never over an existing store
     finally:
         cairn("local", "disable")
+
+
+async def test_git_purge_rewrites_history_locally_and_remotely(org: Org, tmp_path: Path) -> None:
+    await seed(org)
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "--bare", "-q", "-b", "main", str(remote)], check=True)
+    m = GitMirror(tmp_path / "mirror.git", str(remote), org.w.store.engine)
+    m.init()
+    await m.sync()
+    leaked = await org.w.add(org.writer, org.node, "Quokkafoo signing uses a shared key")
+    await m.sync()
+    await org.w.admin(org.admin, "purge_entry", ref=leaked)
+    await m.purge_history()
+    for repo in (m.repo, remote):
+        assert git(repo, "rev-list", "--count", "main").strip() == "1"
+        assert "Quokkafoo" not in git(repo, "log", "-p", "--all")
+    assert "Cairn-Digest:" in git(m.repo, "log", "-1", "--format=%B")
+    await org.w.add(org.writer, org.node, "A fact written after the purge")
+    await m.sync()
+    assert m.state == "ok" and git(remote, "rev-list", "--count", "main").strip() == "2"

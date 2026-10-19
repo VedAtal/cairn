@@ -149,6 +149,9 @@ async def act(request: Request, ref: str, action: str) -> Response:
         if action in ("flag", "unflag"):
             await fed.admin(p, AdminRequest(op=action, args={"ref": ref}))
             return _done()
+        if action == "purge":
+            await fed.admin(p, AdminRequest(op="purge_entry", args={"ref": ref}))
+            return _done(f"/ui/r/{f['node']}" if f.get("node") else "/ui")
         res = await fed.write(p, _write_request(action, ref, f))
     except Exception as exc:
         message = problem(exc)

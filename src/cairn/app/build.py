@@ -13,11 +13,11 @@ from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy.exc import IntegrityError
 
 from .. import __version__, ui
-from ..core import admin
+from ..core import admin, maintenance
 from ..core.access import AccessError, NotFound, Principal
 from ..core.refs import RefError
 from ..core.store import Federation, RemoteError, RemoteStore, SqlStore, Store, StoreUnavailable
-from ..core.write import WriteError
+from ..core.write import WRITE_QUOTA, WriteError
 from ..db import migrate
 from ..db.engine import make_engine
 from ..mcp.server import build_mcp
@@ -37,7 +37,7 @@ def build_app(settings: Settings | None = None, port: int | None = None) -> Fast
     if local:
         settings.home_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     engine = make_engine(settings.database_url)
-    own = SqlStore(engine, settings.alias)
+    own = SqlStore(engine, settings.alias, None if local else WRITE_QUOTA)
     stores: list[Store] = [own]
     git_on, git_remote = settings.git()
     git = GitMirror(settings.home_dir / "mirror.git", git_remote, engine) if git_on else None
@@ -64,15 +64,16 @@ def build_app(settings: Settings | None = None, port: int | None = None) -> Fast
                     log.warning("no instance admin yet; create one with: cairn remote bootstrap <url> --token <token>",
                                 token=token)
         app.state.ready = True
+        tasks = [asyncio.create_task(maintenance.run(engine))]
         if git:
             await asyncio.to_thread(git.init)
-            mirroring = asyncio.create_task(git.run())
+            tasks.append(asyncio.create_task(git.run()))
         async with mcp.session_manager.run():
             yield
-        if git:
-            mirroring.cancel()
+        for task in tasks:
+            task.cancel()
             with suppress(asyncio.CancelledError):
-                await mirroring  # unwind before dispose(): a render may hold the pool's only connection
+                await task  # unwind before dispose(): a task may hold the pool's only connection
         for store in stores:
             if isinstance(store, RemoteStore):
                 await store.aclose()
@@ -122,7 +123,7 @@ def _errors(app: FastAPI) -> None:
             body = {"code": getattr(exc, "code", code), "message": str(exc) or code}
             if isinstance(exc, WriteError):
                 body["duplicates"] = [d.model_dump() for d in exc.duplicates]
-                status_ = 409 if exc.code in ("duplicate", "conflict", "archived") else 422
+                status_ = {"duplicate": 409, "conflict": 409, "archived": 409, "quota": 429}.get(exc.code, 422)
                 return JSONResponse(body, status_code=status_)
             return JSONResponse(body, status_code=status)
 

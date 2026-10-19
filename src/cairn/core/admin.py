@@ -6,12 +6,22 @@ from typing import Any
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from ..db.schema import credentials, entries, nodes, project_members, projects, team_members, teams, users
+from ..db.schema import (
+    audit_log,
+    credentials,
+    entries,
+    nodes,
+    project_members,
+    projects,
+    team_members,
+    teams,
+    users,
+)
 from .access import AccessError, NotFound, Principal, Scope
 from .accounts import hash_token, password_link
 from .refs import Ref, RefError, parse
 from .write import _SLUG as SLUG
-from .write import WriteError, _check_secrets, _log, clean, get_entry, get_node, now
+from .write import WriteError, _check_secrets, _log, clean, get_entry, get_node, now, purge_entry
 
 KEY_PREFIX = "cairn_pat_"
 
@@ -154,13 +164,21 @@ async def _team_role(conn: AsyncConnection, team_id: int, user_id: int) -> str |
 
 OPS = ("whoami", "users", "create_user", "set_user_active", "create_team", "archive_team", "unarchive_team",
        "set_team_member", "create_project", "archive_project", "unarchive_project", "set_project_member", "members",
-       "keys", "create_key", "revoke_key", "flag", "unflag", "password_link", "teams")
+       "keys", "create_key", "revoke_key", "flag", "unflag", "password_link", "teams", "purge_entry", "audit")
+READS = ("whoami", "users", "teams", "keys", "members", "audit")
 
 
 async def run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: dict[str, Any]) -> dict[str, Any]:
-    user, narrowed = scope.principal.user_id, scope.principal.read_only or scope.principal.no_admin
     if op not in OPS:
         raise WriteError(f"unknown admin op {op!r}; ops: {', '.join(OPS)}")
+    result = await _run(conn, scope, alias, op, args)
+    if op not in READS:
+        await conn.execute(audit_log.insert().values(at=now(), by=scope.principal.user_id, op=op, detail=args))
+    return result
+
+
+async def _run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: dict[str, Any]) -> dict[str, Any]:
+    user, narrowed = scope.principal.user_id, scope.principal.read_only or scope.principal.no_admin
     if op == "whoami":
         me = (await conn.execute(select(users.c.email, users.c.name).where(users.c.id == user))).one()
         team_rows = (await conn.execute(select(teams.c.slug, team_members.c.role).join(
@@ -200,6 +218,18 @@ async def run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: di
         if not scope.instance_admin:
             q = q.where(credentials.c.user_id == user)
         return {"revoked": (await conn.execute(q.values(revoked_at=now()))).rowcount}
+    if op == "audit":
+        scope.require_instance_admin()
+        recent = (select(audit_log, users.c.email).join(users, users.c.id == audit_log.c.by)
+                  .order_by(audit_log.c.id.desc()).limit(100))
+        if before := _arg(args, "before", int, required=False):
+            recent = recent.where(audit_log.c.id < before)
+        return {"audit": [{"id": r.id, "at": str(r.at)[:19], "by": r.email, "op": r.op, "detail": r.detail}
+                          for r in await conn.execute(recent)]}
+    if op == "purge_entry":
+        ref = _ref(alias, _arg(args, "ref"), "e")
+        await purge_entry(conn, scope, ref.id)
+        return {"ref": str(ref), "purged": True}
     if op == "users":
         scope.require_instance_admin()
         rows = await conn.execute(select(users.c.email, users.c.name, users.c.active, users.c.is_instance_admin)

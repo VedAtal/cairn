@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 
 from . import local
-from .config import NETWORK_ERRORS, CliError, fetch, home, local_port, local_token, read_toml, update_toml
+from .config import NETWORK_ERRORS, CliError, fetch, home, local_port, proven_token, read_toml, update_toml
 
 _HOSTED = re.compile(r"^(?:[a-z+]+://)?(?:[^@/]+@)?(github\.com|gitlab\.com)[:/](.+?)(?:\.git)?/?$")
 
@@ -36,14 +36,27 @@ def disable() -> None:
 
 def status() -> None:
     port = _port()
-    code, body = fetch(f"http://127.0.0.1:{port}/api/v1/status", token=local_token())
+    code, body = fetch(f"http://127.0.0.1:{port}/api/v1/status", token=proven_token(port))
     if code != 200:
         raise CliError(f"the local server answered {code}")
     print(json.dumps(body["git"], indent=1))
 
 
 def push() -> None:
-    code, body = fetch(f"http://127.0.0.1:{_port()}/api/v1/git/push", {}, local_token(), timeout=180)
+    _call("push", 180)
+
+
+def purge() -> None:
+    print("This replaces the mirror's history with one commit of the current store and force-pushes it, so purged "
+          "entries leave git too. The git host may keep old objects for a while: rotate any leaked secret.")
+    if input("Type purge to continue: ").strip() != "purge":
+        raise CliError("cancelled")
+    _call("purge", 300)
+
+
+def _call(action: str, timeout: float) -> None:
+    port = _port()
+    code, body = fetch(f"http://127.0.0.1:{port}/api/v1/git/{action}", {}, proven_token(port), timeout=timeout)
     if code != 200:
         raise CliError(str(body.get("message", code)) if isinstance(body, dict) else f"HTTP {code}")
     print(json.dumps(body, indent=1))

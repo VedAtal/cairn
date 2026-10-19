@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -8,7 +9,7 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from ..db.schema import entries, entry_revisions, nodes, projects, teams, users
+from ..db.schema import entries, entry_revisions, nodes, projects, teams, users, write_ops
 from ..models import (
     AdminRequest,
     AdminResponse,
@@ -68,7 +69,8 @@ class Store(Protocol):
 
 
 class SqlStore:
-    def __init__(self, engine: AsyncEngine, alias: str) -> None:
+    def __init__(self, engine: AsyncEngine, alias: str, quota: int | None = None) -> None:
+        self.quota = quota
         self.engine, self.alias = engine, alias
         self.on_change: Callable[[], None] = lambda: None
 
@@ -212,12 +214,21 @@ class SqlStore:
     async def write(self, p: Principal, req: WriteRequest) -> WriteResponse:
         async with self.engine.begin() as conn:
             scope = await scope_for(conn, p)
+            done = req.op_id and (await conn.execute(select(write_ops.c.result).where(
+                write_ops.c.user_id == p.user_id, write_ops.c.op_id == req.op_id))).scalar_one_or_none()
+            if done:
+                return WriteResponse.model_validate(done)
+            if self.quota:
+                await write.check_quota(conn, p.user_id, self.quota)
             try:
                 result = await self._write(conn, scope, req)
             except write.WriteError as exc:
                 for d in exc.duplicates:
                     d.ref = f"{self.alias}:{d.ref}"
                 raise
+            if req.op_id:
+                await conn.execute(write_ops.insert().values(user_id=p.user_id, op_id=req.op_id, at=write.now(),
+                                                             result=result.model_dump()))
         self.on_change()
         return result
 
@@ -328,7 +339,11 @@ class RemoteStore:
         return MapResponse.model_validate(await self._post("/map", req.model_copy(update={"store": None}), 10))
 
     async def write(self, p: Principal, req: WriteRequest) -> WriteResponse:
-        return WriteResponse.model_validate(await self._post("/write", req, timeout=15))
+        req = req.model_copy(update={"op_id": req.op_id or secrets.token_hex(16)})
+        try:
+            return WriteResponse.model_validate(await self._post("/write", req, timeout=15))
+        except StoreUnavailable:  # the op_id makes the retry safe if the first attempt landed
+            return WriteResponse.model_validate(await self._post("/write", req, timeout=15))
 
     async def admin(self, p: Principal, req: AdminRequest) -> AdminResponse:
         return AdminResponse.model_validate(await self._post("/admin", req.model_copy(update={"store": None}), 15))

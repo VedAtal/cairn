@@ -146,7 +146,8 @@ def build_mcp(federation: Callable[[], Federation]) -> MCPServer:
         "(team, email, role admin|member|null); create_project (team, slug, name); archive_project / "
         "unarchive_project (project); set_project_member (project, email, role write|read|null); members (team or "
         "project); create_key (name, read_only, no_admin); revoke_key (prefix); flag / unflag (ref) — flagged "
-        "entries and nodes are injected into every reader's sessions."))
+        "entries and nodes are injected into every reader's sessions; purge_entry (ref) deletes an entry and its "
+        "history for good, only for leaked secrets or legal requests; audit (before)."))
     async def admin(ctx: Context, op: str, store: str | None = None, args: dict[str, Any] | None = None) -> str:
         async def go(p: Principal) -> str:
             req = AdminRequest(op=op, store=store, args=args or {})

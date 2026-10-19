@@ -183,7 +183,29 @@ change_log = Table(
     Column("at", TS, nullable=False),
     Column("summary", Text, nullable=False),
     Index(None, "project_id", "seq"),
+    Index(None, "by", "at"),
     sqlite_autoincrement=True,
+)
+
+audit_log = Table(
+    "audit_log",
+    metadata,
+    _id(),
+    Column("at", TS, nullable=False),
+    Column("by", ID, nullable=False),
+    Column("op", String(32), nullable=False),
+    Column("detail", JSON, nullable=False),
+    Index(None, "at"),
+)
+
+write_ops = Table(
+    "write_ops",
+    metadata,
+    _fk("user_id", "users.id", primary_key=True),
+    Column("op_id", String(64), primary_key=True),
+    Column("at", TS, nullable=False),
+    Column("result", JSON, nullable=False),
+    Index(None, "at"),
 )
 
 credentials = Table(

@@ -54,6 +54,11 @@
     hx-target="#move" hx-trigger="click once">Move to another node</summary><div id="move"></div></details>
   {% endif %}
   {{ m.archive_form(item.ref) }}
+  {% if admin %}
+  <div class="row"><button class="danger" hx-post="/ui/r/{{ item.ref }}/purge" hx-vals='{"node": "{{ item.node_ref }}"}'
+    hx-confirm="Permanently delete this entry, its history and its links? Only for leaked secrets and legal requests."
+    hx-target="#msg">Purge</button></div>
+  {% endif %}
 </div>
 {% endif %}
 

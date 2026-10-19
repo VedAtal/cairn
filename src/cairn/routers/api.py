@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
@@ -38,10 +39,13 @@ def _principal(request: Request) -> Principal:
 
 
 @router.get("/hello")
-async def hello(request: Request) -> dict[str, Any]:
+async def hello(request: Request, nonce: str = Query("", max_length=64)) -> dict[str, Any]:
     state = request.app.state
-    return {"store": state.settings.alias, "mode": state.settings.mode, "version": __version__,
-            "api_version": API_VERSION}
+    out = {"store": state.settings.alias, "mode": state.settings.mode, "version": __version__,
+           "api_version": API_VERSION}
+    if nonce and state.local_port is not None:  # proves to clients that this port is ours before they send the token
+        out["proof"] = hmac.new(state.local_token.encode(), nonce.encode(), "sha256").hexdigest()
+    return out
 
 
 @router.post("/bootstrap")
@@ -122,3 +126,11 @@ async def git_push(request: Request) -> dict[str, Any]:
     if not request.app.state.git:
         raise WriteError("git mode is off; turn it on with cairn git enable")
     return await request.app.state.git.push_now()  # type: ignore[no-any-return]
+
+
+@router.post("/git/purge")
+async def git_purge(request: Request) -> dict[str, Any]:
+    _principal(request)
+    if not request.app.state.git:
+        raise WriteError("git mode is off")
+    return await request.app.state.git.purge_history()  # type: ignore[no-any-return]

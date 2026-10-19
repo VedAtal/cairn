@@ -12,6 +12,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from ..core import mirror
+from ..core.write import WriteError
 
 QUIET, RETRY, PUSH_TIMEOUT = 2.0, 300.0, 120.0
 FOREIGN = ("mirror.git holds a store this database never wrote (was cairn.db lost?); restore it with cairn restore "
@@ -101,9 +102,12 @@ class GitMirror:
     def _has_main(self) -> bool:
         return self.git("rev-parse", "--verify", "-q", "refs/heads/main").returncode == 0
 
+    def _identity(self) -> tuple[str, str]:
+        return (self.git("config", "user.name").stdout.decode().strip() or "Cairn",
+                self.git("config", "user.email").stdout.decode().strip() or "cairn@localhost")
+
     def _commit(self, files: dict[str, str], digest: str) -> None:
-        name = self.git("config", "user.name").stdout.decode().strip() or "Cairn"
-        email = self.git("config", "user.email").stdout.decode().strip() or "cairn@localhost"
+        name, email = self._identity()
         message = f"cairn: sync {len(files) - 1} files\n\nCairn-Digest: {digest}\n".encode()
         stream = [b"commit refs/heads/main\n", f"committer {name} <{email}> {int(time.time())} +0000\n".encode(),
                   f"data {len(message)}\n".encode(), message, b"from refs/heads/main^0\n" if self._has_main() else b"",
@@ -129,6 +133,32 @@ class GitMirror:
         self.error = ("the remote has commits this machine doesn't (another machine writing to it?); "
                       "nothing was merged" if diverged else out.strip()[-300:])
         log.warning("git push failed", state=self.state, error=self.error)
+
+    async def purge_history(self) -> dict[str, Any]:
+        await self.push_now()
+        async with self._lock:
+            if self.state != "ok" or self.pending or not self.digest:
+                raise WriteError(f"the mirror isn't in sync ({self.error or self.state}); fix that first")
+            await asyncio.to_thread(self._squash)
+        return self.status()
+
+    def _squash(self) -> None:
+        old = self.git("rev-parse", "refs/heads/main").stdout.decode().strip()
+        name, email = self._identity()
+        made = self.git("-c", f"user.name={name}", "-c", f"user.email={email}", "commit-tree", "refs/heads/main^{tree}",
+                        "-m", f"cairn: history purged\n\nCairn-Digest: {self.digest}\n")
+        new = made.stdout.decode().strip()
+        if made.returncode:
+            raise WriteError(made.stderr.decode()[:300])
+        if self.remote:  # remote first, so a refused push leaves the local history as it was
+            pushed = self.git("push", "--porcelain", f"--force-with-lease=refs/heads/main:{old}", "origin",
+                              f"{new}:refs/heads/main", timeout=PUSH_TIMEOUT)
+            if pushed.returncode:
+                raise WriteError("the remote refused the rewrite: " + (pushed.stdout + pushed.stderr).decode()[-300:])
+            self.last_push = _now()
+        self.git("update-ref", "refs/heads/main", new, old)
+        self.git("gc", "--prune=now", "--quiet")
+        self.last_commit = _now()
 
     async def push_now(self) -> dict[str, Any]:
         if self.state == "diverged":

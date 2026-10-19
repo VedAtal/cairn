@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hmac
 import json
 import os
+import secrets
 import shutil
 import sys
 import tomllib
@@ -65,6 +67,19 @@ def local_port() -> int | None:
 
 def local_token() -> str:
     return (home() / "run" / "token").read_text().strip()
+
+
+def proven_token(port: int, timeout: float = 2.0) -> str:
+    token, nonce = local_token(), secrets.token_hex(16)
+    try:
+        status, body = fetch(f"http://127.0.0.1:{port}/api/v1/hello?nonce={nonce}", timeout=timeout)
+    except NETWORK_ERRORS as exc:
+        raise CliError(f"the local Cairn server isn't answering on port {port}") from exc
+    proof = body.get("proof") if status == 200 and isinstance(body, dict) else None
+    # Another process could hold the port while Cairn is down; it must not learn the token.
+    if not hmac.compare_digest(str(proof), hmac.new(token.encode(), nonce.encode(), "sha256").hexdigest()):
+        raise CliError(f"something other than this machine's Cairn answers on port {port}; not sending the token")
+    return token
 
 
 def remote() -> tuple[str, str] | None:
