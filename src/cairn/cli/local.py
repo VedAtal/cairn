@@ -19,7 +19,7 @@ from typing import Any
 from .config import NETWORK_ERRORS, CliError, cairn_bin, fetch, home, local_port, read_toml, update_toml, write_private
 
 LABEL = "local.cairn.server"
-DEFAULT_PORT = 7317
+DEFAULT_PORT = 6804
 MAC = sys.platform == "darwin"
 
 

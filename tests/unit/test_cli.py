@@ -20,13 +20,13 @@ MATCHER = "startup|resume|clear|compact|fork"
 
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A temp HOME, CAIRN_HOME and CODEX_HOME, with local mode enabled on port 7317."""
+    """A temp HOME, CAIRN_HOME and CODEX_HOME, with local mode enabled on port 6804."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("CAIRN_HOME", str(tmp_path / ".cairn"))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
     monkeypatch.setattr(harness, "cairn_bin", lambda: BIN)
-    config.update_toml("config.toml", "local", {"enabled": True, "port": 7317})
+    config.update_toml("config.toml", "local", {"enabled": True, "port": 6804})
     return tmp_path
 
 
@@ -80,7 +80,7 @@ def test_cairn_bin_prefers_the_running_executable(monkeypatch: pytest.MonkeyPatc
 def test_toml_round_trip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     data: dict[str, config.Table] = {
         "remote": {"url": "https://cairn.acme.dev", "alias": 'q"uote \\ back\nline\ttab\x01 é 😀'},
-        "local": {"enabled": True, "port": 7317, "off": False},
+        "local": {"enabled": True, "port": 6804, "off": False},
     }
     assert tomllib.loads(config.dump_toml(data)) == data
     monkeypatch.setenv("CAIRN_HOME", str(tmp_path))
@@ -112,8 +112,8 @@ def test_setup_claude(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     config_ = json.loads(claude_json.read_text())
     assert config_["numStartups"] == 3 and "other" in config_["mcpServers"]
     assert config_["mcpServers"]["cairn"] == {
-        "type": "http", "url": "http://127.0.0.1:7317/mcp",
-        "headersHelper": f'"{BIN}" auth header --server http://127.0.0.1:7317/mcp', "alwaysLoad": True}
+        "type": "http", "url": "http://127.0.0.1:6804/mcp",
+        "headersHelper": f'"{BIN}" auth header --server http://127.0.0.1:6804/mcp', "alwaysLoad": True}
     settings_ = json.loads(settings.read_text())
     assert settings_["model"] == "opus"
     assert settings_["hooks"]["SessionStart"] == [other_hook, {"matcher": MATCHER, "hooks": [
@@ -179,8 +179,8 @@ def test_setup_codex(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     toml = tomllib.loads(text)
     assert toml["model"] == "o3" and toml["mcp_servers"]["other"] == {"url": "https://other/mcp"}
     assert toml["mcp_servers"]["cairn"] == {
-        "url": "http://127.0.0.1:7317/mcp",
-        "http_headers_helper": f"'{BIN}' auth header --server http://127.0.0.1:7317/mcp",
+        "url": "http://127.0.0.1:6804/mcp",
+        "http_headers_helper": f"'{BIN}' auth header --server http://127.0.0.1:6804/mcp",
         "startup_timeout_sec": 20,
         "tools": {"write": {"approval_mode": "prompt"}, "admin": {"approval_mode": "prompt"}},
     }
@@ -211,7 +211,7 @@ def test_setup_codex(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_setup_endpoint_follows_mode(home: Path) -> None:
-    assert harness.endpoint() == "http://127.0.0.1:7317/mcp"
+    assert harness.endpoint() == "http://127.0.0.1:6804/mcp"
     config.update_toml("config.toml", "local", {"enabled": False})
     set_remote("https://cairn.acme.dev")
     assert harness.endpoint() == "https://cairn.acme.dev/mcp"
@@ -276,12 +276,12 @@ def test_rewire_follows_local_and_remote_changes(home: Path) -> None:
     harness.setup("claude", allow_writes=True)
     claude_json = home / ".claude.json"
     url = lambda: json.loads(claude_json.read_text())["mcpServers"]["cairn"]["url"]  # noqa: E731
-    assert url() == "http://127.0.0.1:7317/mcp"
-    config.update_toml("config.toml", "local", {"enabled": False, "port": 7317})  # what `local disable` leaves
+    assert url() == "http://127.0.0.1:6804/mcp"
+    config.update_toml("config.toml", "local", {"enabled": False, "port": 6804})  # what `local disable` leaves
     cli_main.rewire()
     assert url() == "https://cairn.acme.dev/mcp"
     assert "mcp__cairn__write" in json.loads((home / ".claude/settings.json").read_text())["permissions"]["allow"]
-    stale = cli("auth", "header", "--server", "http://127.0.0.1:7317/mcp", cairn_home=home / ".cairn")
+    stale = cli("auth", "header", "--server", "http://127.0.0.1:6804/mcp", cairn_home=home / ".cairn")
     assert stale.returncode == 1 and stale.stdout == "" and "now serves https://cairn.acme.dev/mcp" in stale.stderr
     config.update_toml("config.toml", "remote", None)
     cli_main.rewire()  # nothing left to connect to: the harness entry is removed
