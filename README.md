@@ -1,12 +1,17 @@
 # Cairn
 
-Philosophy: Models and harnesses are at a point where they can implement better and faster than the majority of engineers,
-assuming they have the same context.
-
 Cairn stores the tribal knowledge your coding agents lack (gotchas, decisions, references) as small, searchable
 entries, so each new Claude Code or Codex session builds on what earlier sessions and teammates learned. Run it
 locally for yourself (SQLite), host it for a team (Postgres), or both; agents see one MCP server that merges the two.
 Design: [DESIGN.md](DESIGN.md).
+
+## Philosophy
+
+Models and harnesses can now build software better and faster than most engineers, as long as they have the same
+context. That condition is the whole gap. Whether an agent works for a team or for one developer, what it lacks isn't
+skill. It's the knowledge you pick up through conversations and experience: the "if you know, you know" kind that
+never makes it into the code or the docs. So the goal is to give every agent session that context, and to have each
+session leave it richer for the next one, so agents build up the same tribal knowledge an engineering team does.
 
 ## Install
 

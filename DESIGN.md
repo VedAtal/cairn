@@ -802,8 +802,8 @@ A menu bar app in its own public repo, `VedAtal/cairn-mac` (bundle ID `local.cai
 only the Command Line Tools.
 
 - **A pure interface.** The CLI owns the server and its login service. The app never writes plists or starts
-  `cairn serve`; it runs `cairn service start|stop|restart|install|uninstall` and `cairn git push`. Delete it any
-  time and Cairn's behavior doesn't change.
+  `cairn serve`; it runs `cairn service start|stop|restart`, `cairn git push` and `cairn upgrade`. It deliberately
+  has no login-service toggle. Delete it any time and Cairn's behavior doesn't change.
 - **Both stores always show**, each as Running/Connected with version and counts, or as Not configured, Not
   running, Blocked in Login Items, Unreachable or API key rejected.
   - **Local:** `/healthz`, then the hello-proof, then `/api/v1/status` with the token from `~/.cairn/run/token`.
