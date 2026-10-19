@@ -57,8 +57,9 @@ def _plain(text: str) -> str:
 
 def _render_group(group: InjectGroup, budget: int) -> tuple[str, bool]:
     head = f"\n## {_plain(group.label)}\n"
-    full = head + "".join(f"- {i.type} {i.ref} ({i.verified_at}): {_plain(i.title)} — {_plain(i.body)}\n"
-                          for i in group.items)
+    # Indented, so a multi-line body stays inside its list item.
+    full = head + "".join(f"- {i.type} {i.ref} ({i.verified_at}): {_plain(i.title)} — "
+                          f"{_plain(i.body).replace('\n', '\n  ')}\n" for i in group.items)
     if len(full.encode()) <= budget:
         return full, False
     titles = [f"- {i.type} {i.ref} ({i.verified_at}): {_plain(i.title)}\n" for i in group.items]

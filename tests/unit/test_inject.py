@@ -37,6 +37,12 @@ def test_everything_fits() -> None:
     assert render([], 8000) == render([InjectGroup(label="x", items=[])], 8000) == ""
 
 
+def test_multi_line_bodies_stay_inside_their_item() -> None:
+    text = render([group("me", 1, body="Emails:\n- a@x.dev\n\nQuote.")], 8000)
+    assert text.endswith("- gotcha acme:e1 (2026-10-01): Fact 1 — Emails:\n  - a@x.dev\n  \n  Quote.\n")
+    assert shown(text) == {"acme:e1"}
+
+
 @pytest.mark.parametrize("budget", range(500, 9001, 500))
 @pytest.mark.parametrize("groups", [1, 2, 3])
 def test_budget_is_respected(budget: int, groups: int) -> None:
