@@ -96,6 +96,7 @@ async def test_secrets_are_rejected(org: Org, secret: str, where: str) -> None:
 
 async def test_secrets_in_nodes_are_rejected(org: Org) -> None:
     assert await outcome(org.w.node(org.writer, org.node, "keys", summary=SECRETS[4])) == "secret"
+    assert await outcome(org.w.write(org.writer, "archive", ref=org.node, reason=SECRETS[4])) == "secret"
 
 
 async def test_high_entropy_strings_are_rejected(org: Org) -> None:

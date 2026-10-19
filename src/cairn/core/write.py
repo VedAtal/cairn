@@ -290,8 +290,11 @@ async def verify_entry(conn: AsyncConnection, scope: Scope, entry_id: int) -> No
 async def archive(conn: AsyncConnection, scope: Scope, kind: str, item_id: int, reason: str | None,
                   restore: bool = False) -> None:
     user, ts = scope.principal.user_id, now()
+    reason = clean(reason or "") or None
+    if reason:
+        _check_secrets(reason)
     values = {"archived_at": None, "archived_by": None, "archive_reason": None} if restore else \
-        {"archived_at": ts, "archived_by": user, "archive_reason": clean(reason or "") or None}
+        {"archived_at": ts, "archived_by": user, "archive_reason": reason}
     op = "unarchive" if restore else "archive"
     if kind == "e":
         entry, node = await get_entry(conn, scope, item_id, lock=True)
