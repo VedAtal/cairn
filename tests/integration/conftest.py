@@ -1,7 +1,3 @@
-"""Integration fixtures. The hosted server (compose service `server`, at CAIRN_TEST_SERVER) is bootstrapped once per
-session, then given a small world of users, a team and two projects, created through both the admin REST op and the
-MCP admin tool. Collected only when CAIRN_TEST_SERVER is set (`make test` sets it)."""
-
 from __future__ import annotations
 
 import json
@@ -27,8 +23,6 @@ if not SERVER:
 
 
 class Api:
-    """REST client for one server and key; `post` asserts the expected status and returns the JSON body."""
-
     def __init__(self, key: str | None = None, base: str = SERVER) -> None:
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         self.http = httpx.Client(base_url=f"{base}/api/v1", headers=headers, timeout=30)
@@ -69,13 +63,13 @@ async def mcp_text(key: str, tool: str, args: dict[str, Any], base: str = SERVER
 @dataclass
 class World:
     alias: str
-    admin: str  # instance admin
-    alice: str  # team admin of `platform`
-    bob: str  # writer in billing
-    dave: str  # reader in billing
-    carol: str  # team member in no project
-    eve: str  # writer in search (set up through MCP)
-    billing: str  # project refs
+    admin: str
+    alice: str
+    bob: str
+    dave: str
+    carol: str
+    eve: str
+    billing: str
     search: str
 
 
@@ -95,7 +89,6 @@ def admin_key() -> str:
 async def world(admin_key: str) -> World:
     root = Api(admin_key)
     alias = root.http.get("/hello").json()["store"]
-    # REST admin op: users, the team, the billing project and its members.
     keys = {n: root.admin("create_user", email=email(n), name=n.title())["api_key"]
             for n in ("alice", "bob", "carol", "dave")}
     root.admin("create_team", slug="platform", name="Platform", admin=email("alice"))
@@ -104,7 +97,6 @@ async def world(admin_key: str) -> World:
     billing = Api(keys["alice"]).admin("create_project", team="platform", slug="billing", name="Billing")["project"]
     Api(keys["alice"]).admin("set_project_member", project=billing, email=email("bob"), role="write")
     Api(keys["alice"]).admin("set_project_member", project=billing, email=email("dave"), role="read")
-    # MCP admin tool: eve, her membership and the search project. The tool returns the result as JSON text.
     async def admin(key: str, op: str, **args: Any) -> Any:
         return json.loads(await mcp_text(key, "admin", {"op": op, "args": args}))
 
@@ -122,7 +114,7 @@ def free_port() -> int:
 
 
 def write_config(home: Path, url: str | None = None, key: str | None = None, alias: str | None = None) -> None:
-    """What `cairn remote add` writes, so tests that aren't about the CLI can point a CAIRN_HOME at a remote."""
+    """Mirrors what `cairn remote add` writes."""
     home.mkdir(parents=True, exist_ok=True)
     (home / "config.toml").write_text(f'[remote]\nurl = "{url}"\nalias = "{alias}"\n' if url else "")
     creds = home / "credentials.toml"
@@ -151,7 +143,6 @@ class Local:
 
 
 def start_local(home: Path) -> Iterator[Local]:
-    """Run `cairn serve --local` on a free port with this CAIRN_HOME until the generator is closed."""
     port = free_port()
     url = f"http://127.0.0.1:{port}"
     home.mkdir(parents=True, exist_ok=True)

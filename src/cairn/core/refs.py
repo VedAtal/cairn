@@ -1,5 +1,3 @@
-"""Refs name things in agent and human text: `<store>:e<id>` (entry), `n` (node), `p` (project)."""
-
 from __future__ import annotations
 
 import re

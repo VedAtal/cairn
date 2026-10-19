@@ -1,5 +1,3 @@
-"""Liveness and readiness. Both unauthenticated."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -25,7 +23,7 @@ async def readyz(request: Request, response: Response) -> dict[str, Any]:
     try:
         async with state.engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
-    except Exception as exc:  # noqa: BLE001 - readiness reports any DB failure
+    except Exception as exc:  # noqa: BLE001
         response.status_code = 503
         return {"status": "db_unavailable", "error": str(exc)[:200]}
     if not state.ready:

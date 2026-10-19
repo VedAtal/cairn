@@ -1,9 +1,3 @@
-"""Every table, typed once in SQLAlchemy Core. Alembic migrations are generated from this metadata.
-
-Search columns (`an_*`) hold analyzer output: space-separated `[a-z0-9]` tokens (see core/analyzer.py). Postgres
-indexes them with expression GIN indexes, SQLite with FTS5 tables; both are created in migrations, not here.
-"""
-
 from __future__ import annotations
 
 from sqlalchemy import (
@@ -31,11 +25,10 @@ metadata = MetaData(
     }
 )
 
-# bigint on Postgres; INTEGER on SQLite so it aliases the rowid (required for AUTOINCREMENT).
+# INTEGER on SQLite so it aliases the rowid, which AUTOINCREMENT requires.
 ID = BigInteger().with_variant(Integer(), "sqlite")
 TS = DateTime(timezone=True)
-# Byte order on Postgres, as on SQLite: locale collations ignore "_" and "/", so slugs, paths and tokens would sort
-# (and LIMIT) differently on the two engines.
+# Byte order, as on SQLite: locale collations ignore "_" and "/" when sorting.
 SLUG = String(48).with_variant(String(48, collation="C"), "postgresql")
 PATH = Text().with_variant(Text(collation="C"), "postgresql")
 TERM = String(64).with_variant(String(64, collation="C"), "postgresql")
@@ -59,7 +52,6 @@ users = Table(
     Column("active", Boolean, nullable=False, default=True),
     Column("created_at", TS, nullable=False),
 )
-# Exactly one instance admin (bootstrap relies on it under concurrency).
 Index("uq_users_instance_admin", users.c.is_instance_admin, unique=True,
       postgresql_where=users.c.is_instance_admin, sqlite_where=users.c.is_instance_admin)
 
@@ -77,7 +69,7 @@ team_members = Table(
     metadata,
     _fk("team_id", "teams.id", primary_key=True),
     _fk("user_id", "users.id", primary_key=True),
-    Column("role", String(10), nullable=False),  # admin | member
+    Column("role", String(10), nullable=False),
 )
 
 projects = Table(
@@ -96,7 +88,7 @@ project_members = Table(
     metadata,
     _fk("project_id", "projects.id", primary_key=True),
     _fk("user_id", "users.id", primary_key=True),
-    Column("role", String(10), nullable=False),  # write | read
+    Column("role", String(10), nullable=False),
 )
 
 nodes = Table(
@@ -106,7 +98,7 @@ nodes = Table(
     _fk("project_id", "projects.id", nullable=False),
     _fk("parent_id", "nodes.id"),
     Column("slug", SLUG, nullable=False),
-    Column("path", PATH, nullable=False),  # slugs joined by "/"; a label, not the identity
+    Column("path", PATH, nullable=False),
     Column("depth", Integer, nullable=False),
     Column("title", String(160), nullable=False),
     Column("summary", Text, nullable=False, default=""),
@@ -121,8 +113,8 @@ nodes = Table(
     Column("archived_by", ID),
     Column("archive_reason", Text),
     Column("is_searchable", Boolean, nullable=False, default=True),
-    Column("an_head", Text, nullable=False, default=""),  # title + keywords
-    Column("an_desc", Text, nullable=False, default=""),  # summary + path
+    Column("an_head", Text, nullable=False, default=""),
+    Column("an_desc", Text, nullable=False, default=""),
     UniqueConstraint("project_id", "path"),
     sqlite_autoincrement=True,
 )
@@ -149,7 +141,7 @@ entries = Table(
     Column("archived_by", ID),
     Column("archive_reason", Text),
     Column("is_searchable", Boolean, nullable=False, default=True),
-    Column("an_head", Text, nullable=False, default=""),  # title + keywords
+    Column("an_head", Text, nullable=False, default=""),
     Column("an_body", Text, nullable=False, default=""),
     Index(None, "node_id"),
     Index(None, "project_id"),
@@ -169,7 +161,6 @@ entry_revisions = Table(
     Column("at", TS, nullable=False),
 )
 
-# Document frequency of each token among searchable entries, per project. Drives generic-term detection.
 term_df = Table(
     "term_df",
     metadata,
@@ -178,7 +169,6 @@ term_df = Table(
     Column("df", Integer, nullable=False),
 )
 
-# Every token ever indexed; substring expansion searches it (`term LIKE '%needle%'`, pg_trgm-indexed on Postgres).
 vocab = Table("vocab", metadata, Column("term", TERM, primary_key=True))
 
 change_log = Table(
@@ -199,12 +189,12 @@ credentials = Table(
     "credentials",
     metadata,
     _id(),
-    _fk("user_id", "users.id"),  # null for the one-time setup token
-    Column("kind", String(16), nullable=False),  # api_key | setup
+    _fk("user_id", "users.id"),
+    Column("kind", String(16), nullable=False),
     Column("sha256", String(64), nullable=False, unique=True),
     Column("token_prefix", String(24), nullable=False),
     Column("name", String(100), nullable=False, default=""),
-    Column("scopes", JSON, nullable=False, default=dict),  # {read_only, no_admin}
+    Column("scopes", JSON, nullable=False, default=dict),
     Column("created_at", TS, nullable=False),
     Column("last_used_at", TS),
     Column("revoked_at", TS),

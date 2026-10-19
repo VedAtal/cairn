@@ -1,5 +1,3 @@
-"""rank_one: concept coverage first, then own coverage, field weight × credit, and variety."""
-
 from __future__ import annotations
 
 import pytest

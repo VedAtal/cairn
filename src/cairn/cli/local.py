@@ -1,6 +1,3 @@
-"""The local server: `cairn local enable|disable`, the login service (launchd on macOS, a systemd user unit
-elsewhere), and starting the server on demand for the startup hook and the header helper."""
-
 from __future__ import annotations
 
 import contextlib
@@ -94,9 +91,9 @@ def service_uninstall() -> None:
 
 
 def service_start(restart: bool = False) -> None:
-    for _ in range(10):  # launchd can still be tearing down a job that was just booted out
+    for _ in range(10):  # launchd may still be tearing down a just-booted-out job
         if MAC:
-            # bootstrap loads and starts it (RunAtLoad); it fails when already loaded, and then kickstart starts it.
+            # bootstrap fails when already loaded; kickstart then starts it.
             ok = _launchctl("bootstrap", f"gui/{os.getuid()}", str(service_file())) or _launchctl(
                 "kickstart", *(["-k"] if restart else []), _target())
         else:
@@ -110,7 +107,7 @@ def service_start(restart: bool = False) -> None:
 def service_stop() -> None:
     if MAC:
         _launchctl("bootout", _target())
-        for _ in range(50):  # bootout returns before launchd has torn the job down; wait so stop is synchronous
+        for _ in range(50):  # bootout returns before the job is torn down
             if not _launchctl("print", _target()):
                 break
             time.sleep(0.1)
@@ -119,7 +116,6 @@ def service_stop() -> None:
 
 
 def start(restart: bool = False) -> None:
-    """Start the local server through the service if one is installed, else as a detached process."""
     if service_file().exists():
         return service_start(restart)
     pid = _recorded_pid()
@@ -136,7 +132,6 @@ def start(restart: bool = False) -> None:
 
 
 def stop() -> None:
-    """Stop the server: uninstall the service, or kill the detached process."""
     if service_file().exists():
         service_uninstall()
     if pid := _recorded_pid():
@@ -205,7 +200,6 @@ def _pick_port() -> int:
 
 
 def _recorded_pid() -> int | None:
-    """The detached server's pid, if it is still alive."""
     try:
         pid = int((home() / "run" / "server.pid").read_text())
     except (OSError, ValueError):
@@ -218,7 +212,7 @@ def _alive(pid: int) -> bool:
         os.kill(pid, 0)
     except OSError:
         return False
-    # A zombie (exited but never reaped, e.g. under an init-less container PID 1) still answers kill(0).
+    # An unreaped zombie (e.g. under an init-less container PID 1) still answers kill(0).
     try:
         return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1][0] != "Z"
     except OSError:  # no /proc (macOS, where launchd reaps orphans)

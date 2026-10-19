@@ -1,5 +1,3 @@
-"""Accounts, teams, projects, membership, API keys and flags. Every op is reachable through the `admin` MCP tool."""
-
 from __future__ import annotations
 
 import hashlib
@@ -62,10 +60,9 @@ async def has_instance_admin(conn: AsyncConnection) -> bool:
 
 
 async def bootstrap(conn: AsyncConnection, token: str, email: str, name: str) -> str:
-    """Exchange the one-time setup token (logged at first start) for the instance admin account and its API key."""
     if await has_instance_admin(conn):
         raise AccessError("this instance is already set up", "already_setup")
-    # Consume the token atomically, so two concurrent bootstraps can't both create an instance admin.
+    # Atomic consume, so two concurrent bootstraps can't both create an instance admin.
     consumed = await conn.execute(update(credentials).where(
         credentials.c.sha256 == hash_token(token), credentials.c.kind == "setup", credentials.c.revoked_at.is_(None)
     ).values(revoked_at=now()))
@@ -77,7 +74,6 @@ async def bootstrap(conn: AsyncConnection, token: str, email: str, name: str) ->
 
 
 async def ensure_local(conn: AsyncConnection) -> int:
-    """Local mode: one user who is instance admin, team `me`, project `personal`. Idempotent; returns the user id."""
     row = (await conn.execute(select(users.c.id).where(users.c.is_instance_admin))).first()
     if row:
         return int(row.id)
@@ -118,7 +114,6 @@ def _arg(args: dict[str, Any], name: str, kind: type = str, required: bool = Tru
 
 
 async def _team(conn: AsyncConnection, scope: Scope, slug: str) -> Any:
-    """A team the caller may know about: its admin, the instance admin, or a reader of one of its projects."""
     row = (await conn.execute(select(teams).where(teams.c.slug == slug))).first()
     visible = row is not None and (row.id in scope.admin_teams
                                    or any(scope.project_team.get(p) == row.id for p in scope.readable))
@@ -228,9 +223,9 @@ async def run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: di
         scope.require_team_admin(team.id)
         member, role = await _user_id(conn, _arg(args, "email")), _arg(args, "role", required=False)
         if "admin" in (role, await _team_role(conn, team.id, member)):
-            scope.require_instance_admin()  # only the instance admin appoints or removes team admins
+            scope.require_instance_admin()
         await _set_role(conn, team_members, "team_id", team.id, member, role, ("admin", "member"))
-        if role is None:  # leaving the team ends access to its projects
+        if role is None:
             await conn.execute(delete(project_members).where(
                 project_members.c.user_id == member,
                 project_members.c.project_id.in_(select(projects.c.id).where(projects.c.team_id == team.id))))
@@ -271,7 +266,6 @@ async def run(conn: AsyncConnection, scope: Scope, alias: str, op: str, args: di
         rows = await conn.execute(select(users.c.email, table.c.role).join(users, users.c.id == table.c.user_id)
                                   .where(table.c[key] == key_id).order_by(users.c.email))
         return {"members": {r.email: r.role for r in rows}}
-    # flag / unflag: what gets injected into every reader's sessions. Team admins only.
     ref = _ref(alias, _arg(args, "ref"), "en")
     if ref.kind == "e":
         _, node = await get_entry(conn, scope, ref.id)

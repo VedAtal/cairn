@@ -1,6 +1,3 @@
-"""CLI flows against the hosted server, each in a throwaway HOME and CAIRN_HOME: remote add/remove, local enable,
-auth header, inject output, and harness setup for Claude Code and Codex."""
-
 from __future__ import annotations
 
 import contextlib
@@ -30,8 +27,8 @@ BEGIN, END = "# >>> cairn (managed by cairn setup codex)", "# <<< cairn"
 
 @dataclass
 class Cli:
-    home: Path  # HOME
-    cairn: Path  # CAIRN_HOME
+    home: Path
+    cairn: Path
 
     def __call__(self, *args: str, stdin: str = "", ok: bool = True) -> subprocess.CompletedProcess[str]:
         env = {k: v for k, v in os.environ.items() if k != "CODEX_HOME"} | {
@@ -81,9 +78,6 @@ def hook_output(res: subprocess.CompletedProcess[str]) -> dict[str, Any]:
     return out
 
 
-# --- remote ---------------------------------------------------------------------------------------------------------
-
-
 def test_remote_add_and_remove(cli: Cli, world: World) -> None:
     cli("remote", "add", SERVER, "--key", world.bob)
     remote = cli.toml("config.toml")["remote"]
@@ -107,17 +101,11 @@ def test_remote_add_rejects_bad_key(cli: Cli) -> None:
     assert "remote" not in cli.toml("credentials.toml")
 
 
-# --- auth header ------------------------------------------------------------------------------------------------------
-
-
 def test_auth_header(cli: Cli, world: World) -> None:
     missing = cli("auth", "header", ok=False)
     assert (missing.returncode, missing.stdout) == (1, "") and missing.stderr
     cli.remote(world.bob, world)
     assert json.loads(cli("auth", "header").stdout) == {"Authorization": f"Bearer {world.bob}"}
-
-
-# --- local ----------------------------------------------------------------------------------------------------------
 
 
 def test_local_enable_and_disable(cli: Cli) -> None:
@@ -152,9 +140,6 @@ def test_local_enable_and_disable(cli: Cli) -> None:
         raise AssertionError("local server still running after disable")
 
 
-# --- inject ---------------------------------------------------------------------------------------------------------
-
-
 def test_inject_unconfigured(cli: Cli) -> None:
     for hook in ("claude-code", "codex"):
         res = cli("inject", "--hook", hook, stdin='{"hook_event_name": "SessionStart", "source": "startup"}')
@@ -184,8 +169,6 @@ def test_inject_remote_cache_and_rejection(cli: Cli, world: World, flagged: str)
     assert rejected["systemMessage"] == "Cairn: credentials rejected; run cairn remote add"
     assert rejected["hookSpecificOutput"]["additionalContext"] == "" and not cache.exists()
 
-
-# --- setup ----------------------------------------------------------------------------------------------------------
 
 OTHER_HOOK = {"matcher": "startup", "hooks": [{"type": "command", "command": "/usr/bin/true"}]}
 

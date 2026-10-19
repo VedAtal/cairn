@@ -1,6 +1,3 @@
-"""Alembic environment. Migrations run on a connection handed in by cairn.db.migrate (or, for autogenerate during
-development, on CAIRN_DB__URL)."""
-
 from __future__ import annotations
 
 import os
@@ -13,7 +10,7 @@ from cairn.db.schema import metadata
 
 
 def _include(obj: Any, name: str | None, type_: str, reflected: bool, compare_to: Any) -> bool:
-    # FTS5 shadow tables and expression indexes are created by hand in migrations; autogenerate must ignore them.
+    # Hand-written search tables and indexes; autogenerate must skip them.
     return not (name or "").startswith(("entries_fts", "nodes_fts", "ix_search_"))
 
 

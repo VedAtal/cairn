@@ -1,6 +1,3 @@
-"""Stores behind one interface. SqlStore owns a database; RemoteStore speaks REST to another Cairn server;
-Federation fans out across them (a local store plus at most one remote) and merges."""
-
 from __future__ import annotations
 
 import asyncio
@@ -46,8 +43,6 @@ class StoreUnavailable(Exception):
 
 
 class RemoteError(Exception):
-    """An error response from a remote store, passed through to the caller."""
-
     def __init__(self, status: int, body: dict[str, Any]) -> None:
         super().__init__(body.get("message", "remote error"))
         self.status, self.body = status, body
@@ -141,7 +136,7 @@ class SqlStore:
                     history=revisions)
 
     async def _tombstone(self, conn: AsyncConnection, ref: str, row: Any) -> Item:
-        if row.archived_at is None:  # searchable only through an archived ancestor
+        if row.archived_at is None:
             return Item(ref=ref, status="archived", tombstone=f"{ref} — inside an archived node")
         who = (await conn.execute(select(users.c.email).where(users.c.id == row.archived_by))).scalar_one_or_none()
         return Item(ref=ref, status="archived",
@@ -270,8 +265,6 @@ def _keep(node: MapNode, flt: str) -> bool:
 
 
 class RemoteStore:
-    """Another Cairn server, reached over REST with the user's API key. The principal is the key's owner there."""
-
     def __init__(self, url: str, api_key: str, alias: str, timeout: float = 1.5) -> None:
         self.alias = alias
         self.client = httpx.AsyncClient(base_url=url.rstrip("/") + "/api/v1", timeout=timeout,
@@ -315,8 +308,6 @@ class RemoteStore:
 
 
 class Federation:
-    """The stores one server answers for: its own, plus (local mode) the user's remote."""
-
     def __init__(self, stores: list[Store]) -> None:
         self.stores = stores
 
@@ -331,7 +322,6 @@ class Federation:
         raise RefError(f"no store {alias!r}; stores: {', '.join(s.alias for s in self.stores)}")
 
     async def search(self, p: Principal, req: SearchRequest) -> SearchResponse:
-        # A `within` ref names one store; only that store can resolve it.
         only = [req.within.split(":", 1)[0]] if req.within else req.stores
         targets = [s for s in self.stores if not only or s.alias in only]
         results = await asyncio.gather(*(s.search(p, req) for s in targets), return_exceptions=True)
@@ -406,7 +396,6 @@ class Federation:
 
 
 def _why(store: Store, exc: BaseException) -> str:
-    """How an unreachable store is named to the agent: rejected credentials need a different fix than downtime."""
     code = exc.body.get("code") if isinstance(exc, RemoteError) else None
     return f"{store.alias} ({code})" if code else store.alias
 

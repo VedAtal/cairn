@@ -1,9 +1,3 @@
-"""Settings, from CAIRN_* environment variables.
-
-Hosted mode needs CAIRN_DB__URL (Postgres) and CAIRN_STORE_ALIAS. Local mode derives everything from CAIRN_HOME
-(default ~/.cairn): the SQLite file, the local token, and the optional remote in config.toml/credentials.toml.
-"""
-
 from __future__ import annotations
 
 import tomllib
@@ -16,7 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class DBSettings(BaseModel):
     url: str | None = None
-    # Direct (non-pooled) connection for migrations, which need a session-level advisory lock.
+    # Non-pooled, for migrations: they need a session-level advisory lock.
     migrate_url: str | None = None
 
 
@@ -31,7 +25,6 @@ class Settings(BaseSettings):
     home: Path = Path("~/.cairn")
     db: DBSettings = DBSettings()
     store_alias: str = "cairn"
-    # Hosted: a known one-time setup token (for automated deploys and tests) instead of one printed to the log.
     setup_token: str | None = None
     log_level: str = "INFO"
     json_logs: bool = False
@@ -59,7 +52,6 @@ class Settings(BaseSettings):
         return self.home_dir / "run" / "token"
 
     def remote(self) -> RemoteSettings | None:
-        """The remote this local server federates to, if one was added with `cairn remote add`."""
         if self.mode != "local":
             return None
         config, creds = _toml(self.home_dir / "config.toml"), _toml(self.home_dir / "credentials.toml")

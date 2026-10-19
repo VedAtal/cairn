@@ -1,5 +1,3 @@
-"""Access: roles per project, admin-only injected content, and API key narrowing. Unauthorized looks like absent."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -12,7 +10,6 @@ from tests.conftest import Org, World, outcome
 
 
 def writes(org: Org, entry: str) -> dict[str, dict[str, Any]]:
-    """One request per write op, all aimed at `org.node` / `entry`."""
     return {
         "add": {"op": "add", "node": org.node, "entry": EntryFields(type="general", title="Ledger exports run at 2am")},
         "update": {"op": "update", "ref": entry, "base_revision": 1, "entry": EntryFields(body="Changed body")},
@@ -55,7 +52,6 @@ LOCKED["parent node"] = LOCKED["node"]
 
 
 async def flag(org: Org, flagged: str) -> str:
-    """Add an entry under org.node, flag the entry, org.node, or a new parent of org.node; return the entry."""
     w = org.w
     entry = await w.add(org.writer, org.node, "Invoices are numbered per account")
     target = {"entry": entry, "node": org.node}.get(flagged)
@@ -92,7 +88,7 @@ async def test_writer_cannot_verify_injected_entry(org: Org) -> None:
 
 @pytest.mark.parametrize(("who", "scopes", "write", "admin_op"), [
     ("writer", {"read_only": True}, "read_only", "admin_required"),
-    ("admin", {"read_only": True}, "read_only", None),  # admin ops: see the xfail below
+    ("admin", {"read_only": True}, "read_only", None),
     ("admin", {"no_admin": True}, "ok", "admin_required"),
     ("admin", {}, "ok", "ok"),
 ])
@@ -101,7 +97,7 @@ async def test_key_scopes(org: Org, who: str, scopes: dict[str, bool], write: st
     key = await w.principal((await w.admin(getattr(org, who), "create_key", name="narrow", **scopes))["api_key"])
     assert (key.read_only, key.no_admin) == (scopes.get("read_only", False), scopes.get("no_admin", False))
     entry = await w.add(org.writer, org.node, "Invoices are numbered per account")
-    assert [h.ref for h in await w.search(key, "invoice")] == [entry]  # reading is never narrowed away
+    assert [h.ref for h in await w.search(key, "invoice")] == [entry]
     assert await try_write(w, key, writes(org, entry)["update"]) == write
     if admin_op:
         assert await outcome(w.admin(key, "set_project_member", project=org.project, email="otto@acme.dev",

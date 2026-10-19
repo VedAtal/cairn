@@ -3,14 +3,12 @@ COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/venv PATH="/venv/bin:$PATH"
 WORKDIR /app
 
-# Dependencies first, so source edits don't invalidate the layer.
 COPY pyproject.toml uv.lock* README.md ./
 RUN uv sync --no-install-project --no-dev
 
 COPY src ./src
 RUN uv sync --no-dev
 
-# Test image: adds dev deps and the test suite. `docker compose run test` uses it.
 FROM base AS test
 RUN uv sync
 COPY tests ./tests

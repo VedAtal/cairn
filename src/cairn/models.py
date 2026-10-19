@@ -1,5 +1,3 @@
-"""Request and response models shared by REST, MCP and federation (a local server talks REST to its remote)."""
-
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -14,7 +12,7 @@ class SearchRequest(BaseModel):
     concepts: list[str] = Field(min_length=1, max_length=8)
     stores: list[str] | None = None
     types: list[EntryType] | None = None
-    within: str | None = None  # node or project ref
+    within: str | None = None
     limit: int = Field(12, ge=1, le=50)
 
 
@@ -31,7 +29,7 @@ class HitOut(BaseModel):
     team: str
     project: str
     matched: list[str]
-    features: tuple[int, int, int, int, int]  # C, E, S, V, depth — comparable across stores
+    features: tuple[int, int, int, int, int]
 
 
 class SearchResponse(BaseModel):
@@ -136,9 +134,9 @@ WriteOp = Literal["add", "update", "archive", "unarchive", "verify", "move", "cr
 
 class WriteRequest(BaseModel):
     op: WriteOp
-    ref: str | None = None  # the entry or node being changed
-    node: str | None = None  # target node: `add`, `move`, parent for `create_node`
-    project: str | None = None  # target project for a top-level `create_node` or `move`
+    ref: str | None = None
+    node: str | None = None
+    project: str | None = None
     base_revision: int | None = None
     entry: EntryFields | None = None
     node_fields: NodeFields | None = None
@@ -184,7 +182,7 @@ class InjectItem(BaseModel):
 
 
 class InjectGroup(BaseModel):
-    label: str  # "<store>" or "<store> · <team>"
+    label: str
     items: list[InjectItem]
 
 

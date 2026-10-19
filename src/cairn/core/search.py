@@ -1,10 +1,3 @@
-"""Concept-coverage search: the same plan and ranking on Postgres and SQLite.
-
-The agent sends concepts, each one idea written as `a|b|c` variants. The database only answers "which rows' tokens
-satisfy this formula" (GIN on Postgres, FTS5 on SQLite) and aggregates coverage to pick ~200 candidates; Python
-ranks them on features that depend only on the document, so results also merge cleanly across stores.
-"""
-
 from __future__ import annotations
 
 import math
@@ -22,11 +15,10 @@ G_CAP = 5000
 MIN_NEEDLE = 4
 MAX_EXPANSIONS = 16
 
-# (field, weight). Entry fields count as the entry's "own" coverage; node fields only add to it.
 ENTRY_FIELDS = (("title/keywords", 40), ("body", 10))
 NODE_FIELDS = (("node", 30), ("node summary", 20))
 
-# Postgres index expressions; they must match the ones in migration 0001 for the GIN indexes to be used.
+# Must match the index expressions in migration 0001, or the GIN indexes go unused.
 _TSV = "array_to_tsvector(array_remove(string_to_array({}, ' '), ''))"
 _PG_LEAVES = {
     "entry": ("entries", ("an_head", "an_head || ' ' || an_body")),
@@ -39,7 +31,7 @@ _WEIGHTS = {"entry": (40, 10), "node": (30, 20)}
 @dataclass
 class Concept:
     variants: list[Variant]
-    generic: set[str] = field(default_factory=set)  # raw spellings of variants whose every token is common
+    generic: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -55,7 +47,7 @@ class Hit:
     project: str
     team: str
     matched: list[str]
-    features: tuple[int, int, int, int, int]  # C, E, S, V, depth
+    features: tuple[int, int, int, int, int]
 
 
 def parse_concepts(raw: list[str]) -> list[Concept]:
@@ -68,7 +60,6 @@ def parse_concepts(raw: list[str]) -> list[Concept]:
 
 
 def token_concepts(tokens: list[str]) -> list[Concept]:
-    """Concepts built from already-analyzed tokens (the dedup gate passes tokens, never re-analyzes them)."""
     return [Concept([Variant(raw=t, chunks=((frozenset({t}),),))]) for t in tokens]
 
 
@@ -98,7 +89,6 @@ async def _expand(conn: AsyncConnection, needle: str, pids: list[int]) -> list[s
 
 
 async def plan(conn: AsyncConnection, concepts: list[Concept], pids: list[int]) -> None:
-    """Add substring expansions and mark generic variants, in place."""
     terms = {t for c in concepts for v in c.variants for t in v.tokens}
     df = await doc_frequencies(conn, terms, pids)
     total = (await conn.execute(
@@ -160,11 +150,10 @@ async def candidates(
     pids: list[int],
     *,
     types: list[str] | None = None,
-    within: tuple[str, int, str | None] | None = None,  # ("p", project_id, None) | ("n", project_id, path)
+    within: tuple[str, int, str | None] | None = None,
     exclude: list[int] | None = None,
     limit: int = CAND_LIMIT,
 ) -> list[int]:
-    """Entry ids ordered by concept coverage (concepts covered, then own coverage, then weight)."""
     if not concepts or not pids:
         return []
     params: dict[str, Any] = {"pids": pids}
@@ -204,7 +193,6 @@ async def candidates(
 
 def rank_one(concepts: list[Concept], head: set[str], body: set[str], node_head: set[str], node_desc: set[str]
              ) -> tuple[int, int, int, int, list[str]] | None:
-    """Features (C, E, S, V) and matched labels for one candidate, or None if it should be dropped."""
     fields = ((ENTRY_FIELDS[0], head, True), (ENTRY_FIELDS[1], body, True),
               (NODE_FIELDS[0], node_head, False), (NODE_FIELDS[1], node_desc, False))
     c = e = s = 0

@@ -1,4 +1,3 @@
-# Everything runs in Docker; the host needs only docker (no uv or Python).
 # Not cairn-test: compose already uses that name for the test service's image.
 IMAGE := cairn-dev
 RUN := docker run --rm -v "$(CURDIR)/src:/app/src" -v "$(CURDIR)/tests:/app/tests" \

@@ -1,5 +1,3 @@
-"""The MCP surface: five tools, identical in every mode. Results are plain text sized for an agent's context."""
-
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -61,10 +59,10 @@ Handler = Callable[[Principal], Awaitable[str]]
 def build_mcp(federation: Callable[[], Federation]) -> MCPServer:
     mcp = MCPServer(name="cairn", version=__version__, instructions=INSTRUCTIONS, subscriptions=False)
 
-    async def run(ctx: Context, handler: Handler) -> str:  # errors become tool text the agent can act on
+    async def run(ctx: Context, handler: Handler) -> str:
         request = ctx.request_context.request
         assert request is not None, "MCP is only served over HTTP"
-        principal: Principal = request.state.principal  # set by AuthMiddleware
+        principal: Principal = request.state.principal
         try:
             return await handler(principal)
         except WriteError as exc:

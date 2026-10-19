@@ -1,6 +1,3 @@
-"""Shared fixtures: fresh stores on SQLite (and on Postgres when CAIRN_TEST_PG_URL is set), plus helpers that build
-users, teams, projects and content through the real admin and write paths."""
-
 from __future__ import annotations
 
 import asyncio
@@ -44,8 +41,6 @@ SETUP_TOKEN = "test-setup-token"
 
 @dataclass
 class World:
-    """A store and its instance admin (`root`), with shortcuts over the store's public operations."""
-
     store: SqlStore
     root: Principal
 
@@ -75,7 +70,6 @@ class World:
 
     async def node(self, p: Principal, parent: str, slug: str, title: str = "", summary: str = "",
                    keywords: list[str] | None = None) -> str:
-        """Create a node under `parent`, a project ref (top level) or a node ref."""
         where = {"project" if ":p" in parent else "node": parent}
         fields = NodeFields(slug=slug, title=title or slug, summary=summary, keywords=keywords or [])
         ref = (await self.write(p, "create_node", **where, node_fields=fields)).ref
@@ -103,7 +97,6 @@ class World:
 
 
 async def outcome(call: Awaitable[Any]) -> str:
-    """'ok', or the error code the call failed with ('not_found' for NotFound), for table-driven tests."""
     try:
         await call
     except (WriteError, AccessError) as exc:
@@ -117,7 +110,6 @@ async def outcome(call: Awaitable[Any]) -> str:
 
 @asynccontextmanager
 async def open_world(url: str) -> AsyncIterator[World]:
-    """Migrate the database at `url`, then bootstrap its instance admin through the one-time setup token."""
     await asyncio.to_thread(migrate.upgrade, url)
     engine = make_engine(url)
     try:
@@ -143,7 +135,6 @@ async def world(tmp_path: Path) -> AsyncIterator[World]:
 
 @pytest.fixture(scope="session")
 def pg_url() -> Iterator[str]:
-    """A uniquely named Postgres database for this test session, dropped at the end."""
     base = os.environ.get("CAIRN_TEST_PG_URL")
     if not base:
         pytest.skip("CAIRN_TEST_PG_URL is not set")
@@ -159,13 +150,11 @@ def pg_url() -> Iterator[str]:
 
 @dataclass
 class Org:
-    """Team `eng` with project `platform` (one node), and one user per role."""
-
     w: World
-    admin: Principal  # team admin
-    writer: Principal  # writes `platform`
-    reader: Principal  # reads `platform`
-    member: Principal  # in the team, in zero projects
+    admin: Principal
+    writer: Principal
+    reader: Principal
+    member: Principal
     project: str
     node: str
 

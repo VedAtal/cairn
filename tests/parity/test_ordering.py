@@ -1,5 +1,3 @@
-"""SQLite vs Postgres parity for result ordering (map, node outlines, injection)."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,7 +20,6 @@ async def scenario(w: World) -> tuple[list[str], list[str], list[str], list[str]
     map_order = [n.title for n in tree]
     [outline] = await w.get(org.admin, org.project)
     outline_order = [c.title for c in outline.children]
-    # Injection: two flagged nodes, the first one edited afterwards.
     await w.admin(org.admin, "flag", ref=nodes["ab"])
     await w.admin(org.admin, "flag", ref=nodes["a_c"])
     await w.write(org.admin, "update_node", ref=nodes["ab"], base_revision=1,

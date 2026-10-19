@@ -1,5 +1,4 @@
-"""Bearer auth for every route except health/hello/bootstrap. Local mode also checks Host and Origin, because any
-web page can send requests to localhost."""
+"""Local mode also checks Host and Origin because any web page can reach localhost."""
 
 from __future__ import annotations
 

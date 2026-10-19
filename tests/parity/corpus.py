@@ -1,8 +1,3 @@
-"""A deterministic corpus for the parity suite: ~300 entries over 3 projects, generated from a fixed seed.
-
-Golden entries come first, with fixed text, so golden queries know which entry must rank first.
-"""
-
 from __future__ import annotations
 
 import random
@@ -14,7 +9,7 @@ PROJECTS = ("platform", "mobile", "data")
 
 @dataclass(frozen=True)
 class Node:
-    path: str  # "<project>/<slug>/…"
+    path: str
     title: str
     summary: str
     keywords: tuple[str, ...] = ()
@@ -27,14 +22,14 @@ class Entry:
     title: str
     body: str
     keywords: tuple[str, ...] = ()
-    key: str = ""  # golden entries are looked up by key
+    key: str = ""
 
 
 @dataclass(frozen=True)
 class Query:
     concepts: tuple[str, ...]
     types: tuple[str, ...] = ()
-    within: str = ""  # a project slug or node path
+    within: str = ""
 
     def __str__(self) -> str:
         extra = (f" types={','.join(self.types)}" if self.types else "") + (f" in {self.within}" if self.within else "")
@@ -166,7 +161,7 @@ def _generate(n: int) -> list[Entry]:
 
 
 ENTRIES = GOLDEN + _generate(300)
-# Near-copies of existing entries, sent without distinct_from: the dedup gate's decisions must match too.
+# Near-copies of existing entries, to exercise the dedup gate.
 PROBES = [Entry(e.node, e.type, e.title.replace(" the ", " a ") + ".", e.body, e.keywords) for e in ENTRIES[::15]] + [
     Entry(e.node, "general", " ".join(e.title.split()[:3]) + " notes", e.body) for e in ENTRIES[3::40]]
 
@@ -217,7 +212,6 @@ QUERIES = [
     Query(("redis", "shared"), within="mobile"),
 ]
 
-# The obvious best entry must rank first.
 GOLDEN_FIRST = [
     (QUERIES[0], "stripe"), (QUERIES[1], "altname"), (QUERIES[2], "altname"), (QUERIES[3], "altname"),
     (QUERIES[4], "altname"), (QUERIES[5], "fileloader"), (QUERIES[6], "fileloader"), (QUERIES[7], "consumer"),

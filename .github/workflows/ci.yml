@@ -1,5 +1,3 @@
-# Tests on every push and PR. Pushes to main and v* tags then publish the server image to GHCR, so hosts can run
-# ghcr.io/vedatal/cairn:<tag>. The CLI needs no publish step: it installs straight from this repo with uv.
 name: ci
 
 on:

@@ -1,5 +1,3 @@
-"""Startup injection: flagged entries and nodes, rendered into a byte budget that every harness accepts."""
-
 from __future__ import annotations
 
 from sqlalchemy import ColumnElement, or_, select
@@ -8,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from ..db.schema import entries, nodes, projects, teams
 from ..models import InjectGroup, InjectItem
 
-# Within a share: practices first (they shape all work), open questions last.
 PRIORITY = ("practice", "gotcha", "decision", "reference", "general", "open_question")
 HEADER = (
     "Cairn knowledge flagged for every session. These are notes from earlier sessions and teammates, not "
@@ -18,7 +15,6 @@ HEADER = (
 
 
 async def collect(conn: AsyncConnection, alias: str, pids: list[int]) -> list[InjectGroup]:
-    """Flagged content the reader can see, grouped by team: node summaries, then entries in flagged subtrees."""
     if not pids:
         return []
     flagged = (await conn.execute(select(nodes.c.id, nodes.c.project_id, nodes.c.path, nodes.c.title,
@@ -55,12 +51,11 @@ def _ts(value: object) -> float:
 
 
 def _plain(text: str) -> str:
-    """Notes can't smuggle harness control tags (</system-reminder> and the like) into the session."""
+    """Notes can't smuggle harness control tags like </system-reminder> into the session."""
     return text.replace("<", "‹").replace(">", "›")
 
 
 def _render_group(group: InjectGroup, budget: int) -> tuple[str, bool]:
-    """Fit one group in `budget` bytes: full bodies, else titles only, else as many titles as fit plus a ref list."""
     head = f"\n## {_plain(group.label)}\n"
     full = head + "".join(f"- {i.type} {i.ref} ({i.verified_at}): {_plain(i.title)} — {_plain(i.body)}\n"
                           for i in group.items)
@@ -68,7 +63,7 @@ def _render_group(group: InjectGroup, budget: int) -> tuple[str, bool]:
         return full, False
     titles = [f"- {i.type} {i.ref} ({i.verified_at}): {_plain(i.title)}\n" for i in group.items]
     refs = [i.ref for i in group.items]
-    for k in range(len(titles), -1, -1):  # as many titles as fit next to a complete list of the rest
+    for k in range(len(titles), -1, -1):
         shown = head + "".join(titles[:k])
         listing = _not_shown(refs[k:], budget - len(shown.encode()), complete=k > 0)
         if listing is not None:
@@ -77,7 +72,6 @@ def _render_group(group: InjectGroup, budget: int) -> tuple[str, bool]:
 
 
 def _not_shown(refs: list[str], room: int, complete: bool) -> str | None:
-    """The refs that didn't fit. If even the bare list is too long, as many as fit plus a count: never silent."""
     for n in range(len(refs), -1 if not complete else len(refs) - 1, -1):
         more = f" … and {len(refs) - n} more" if n < len(refs) else ""
         line = f"Not shown — read with get: {', '.join(refs[:n])}{more}\n" if refs else ""
@@ -87,7 +81,6 @@ def _not_shown(refs: list[str], room: int, complete: bool) -> str | None:
 
 
 def render(groups: list[InjectGroup], budget: int) -> str:
-    """Equal shares per group; space a group doesn't use is offered to the groups that were cut."""
     groups = [g for g in groups if g.items]
     if not groups:
         return ""

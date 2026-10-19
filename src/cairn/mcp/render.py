@@ -1,5 +1,3 @@
-"""Plain-text renderings for agents: compact, capped, and never stems or internal ids."""
-
 from __future__ import annotations
 
 import json
@@ -46,14 +44,14 @@ def get(resp: GetResponse) -> str:
     for item in resp.items:
         if item.status != "ok":
             block = item.tombstone or f"{item.ref} — not found (or not visible to you)"
-        elif item.type:  # entry
+        elif item.type:
             block = (f"{item.ref} · {item.type} · rev {item.rev} · verified {item.verified_at} · node {item.node_ref}"
                      f" ({item.path}){' · injected' if item.inject else ''}\n{item.title}\n{item.body}")
             if item.keywords:
                 block += f"\nkeywords: {', '.join(item.keywords)}"
             for rev in item.history:
                 block += f"\n  rev {rev.rev} ({rev.at}): {rev.title} — {rev.body[:200]}"
-        else:  # node or project outline
+        else:
             block = f"{item.ref} · {item.title}" + (f" ({item.path}) · rev {item.rev}" if item.path else "")
             if item.summary:
                 block += f"\n{item.summary}"

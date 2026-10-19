@@ -1,5 +1,3 @@
-"""Search over a real store, for behavior the parity corpus doesn't pin down."""
-
 from __future__ import annotations
 
 import pytest

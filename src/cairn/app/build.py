@@ -1,5 +1,3 @@
-"""Builds the ASGI app: migrate on startup, then serve REST, MCP and health from one process."""
-
 from __future__ import annotations
 
 import asyncio
@@ -80,7 +78,7 @@ def build_app(settings: Settings | None = None, port: int | None = None) -> Fast
     _errors(app)
     app.include_router(health.router)
     app.include_router(api.router)
-    # Mounted last at "/" (not "/mcp": a sub-mount answers POST /mcp with a redirect that clients don't follow).
+    # Last, at "/": a "/mcp" sub-mount redirects POST /mcp, which clients don't follow.
     app.mount("/", mcp.streamable_http_app(
         streamable_http_path="/mcp", stateless_http=True, json_response=True,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),  # AuthMiddleware checks
@@ -115,7 +113,7 @@ def _errors(app: FastAPI) -> None:
     app.add_exception_handler(RefError, handler(422, "invalid"))
     app.add_exception_handler(StoreUnavailable, handler(503, "unreachable"))
 
-    async def integrity_error(_: Request, exc: Exception) -> JSONResponse:  # a concurrent write won a unique key
+    async def integrity_error(_: Request, exc: Exception) -> JSONResponse:
         return JSONResponse({"code": "conflict", "message": "conflicting concurrent change; retry"}, status_code=409)
 
     app.add_exception_handler(IntegrityError, integrity_error)

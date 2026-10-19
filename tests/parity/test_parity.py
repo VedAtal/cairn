@@ -1,6 +1,3 @@
-"""Cross-backend parity: one corpus written through SqlStore.write on SQLite and on Postgres must dedup and rank
-identically. Golden queries also pin down that the obvious best entry ranks first on each backend."""
-
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
@@ -19,14 +16,14 @@ from tests.parity.corpus import ENTRIES, GOLDEN_FIRST, NODES, PROBES, PROJECTS, 
 @dataclass
 class Corpus:
     w: World
-    refs: dict[str, str]  # project slugs, node paths and golden keys -> refs
+    refs: dict[str, str]
     readers: dict[str, Principal]
-    decisions: list[tuple[Any, ...]]  # every write's outcome, in order
+    decisions: list[tuple[Any, ...]]
 
 
 async def load(w: World) -> Corpus:
     await w.admin(w.root, "create_team", slug="eng")
-    rita = await w.user("rita@acme.dev", team="eng")  # reads two of the three projects
+    rita = await w.user("rita@acme.dev", team="eng")
     refs = {slug: await w.project("eng", slug, {"rita@acme.dev": "read"} if slug != "data" else None)
             for slug in PROJECTS}
     for n in NODES:

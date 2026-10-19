@@ -1,5 +1,3 @@
-"""REST API (/api/v1). Used by the CLI, the startup hook, and local servers federating to a remote."""
-
 from __future__ import annotations
 
 from typing import Any

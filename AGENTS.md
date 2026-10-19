@@ -34,7 +34,9 @@ Everything runs in Docker; the host needs no Python or uv. `make help` lists the
 
 - `from __future__ import annotations`, full type hints (mypy strict), line length 120, ruff rules E,W,F,I,UP,B,SIM.
   The code is not run through `ruff format`.
-- Keep it minimal: no speculative options, short module docstrings, comments only for a non-obvious why.
+- Keep it minimal: no speculative options.
+- Comments: one short line, only for a non-obvious why. Nothing that restates the code or is recoverable from it or
+  DESIGN.md; no multi-line comments or docstrings.
 - No new runtime dependencies.
 - Same behavior everywhere: Postgres and SQLite, local and hosted, REST and MCP.
 - Every read and write goes through the access scope (`core/access.py`); unreadable things answer 404, not 403.

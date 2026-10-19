@@ -1,5 +1,3 @@
-"""structlog for app and library loggers alike: console output in dev, JSON in production."""
-
 from __future__ import annotations
 
 import logging
@@ -25,7 +23,7 @@ def setup_logging(level: str = "INFO", json_logs: bool = False) -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level.upper())
-    logging.getLogger("httpx").setLevel(logging.WARNING)  # federation requests would log every call at INFO
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         logging.getLogger(name).handlers = []
         logging.getLogger(name).propagate = True

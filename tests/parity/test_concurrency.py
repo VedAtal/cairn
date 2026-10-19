@@ -1,6 +1,3 @@
-"""Postgres concurrency regressions from the adversarial review. Delays are injected into internal steps so two
-transactions interleave the way two replicas (or two requests on one replica) can; the code is otherwise unchanged."""
-
 from __future__ import annotations
 
 import asyncio
@@ -65,7 +62,7 @@ async def staggered(*calls: Any, gap: float = 0.15) -> list[str]:
         await asyncio.sleep(i * gap)
         try:
             return await outcome(call())
-        except Exception as exc:  # noqa: BLE001 - what the REST layer would turn into a 500
+        except Exception as exc:  # noqa: BLE001
             return f"UNHANDLED {type(exc).__name__}: {str(exc).splitlines()[0][:120]}"
     return list(await asyncio.gather(*(run(i, c) for i, c in enumerate(calls))))
 
@@ -82,7 +79,6 @@ async def df_drift(w: World) -> dict[tuple[str, int], tuple[int, int]]:
     return {k: (actual.get(k, 0), expected.get(k, 0)) for k in keys if actual.get(k, 0) != expected.get(k, 0)}
 
 
-# F. Optimistic locking on update_node: two writers with the same base_revision both succeed (lost update).
 async def test_update_node_lost_update(pgw: World, monkeypatch: pytest.MonkeyPatch) -> None:
     org = await make_org(pgw)
     slow(monkeypatch, write, "_log", 0.5, before=True)
@@ -97,7 +93,6 @@ async def test_update_node_lost_update(pgw: World, monkeypatch: pytest.MonkeyPat
     assert res.count("ok") == 1, "both writers passed the base_revision check"
 
 
-# G. Two update_entry calls with the same base_revision: the loser hits a PK violation (500), not 409 conflict.
 async def test_update_entry_race_is_a_conflict(pgw: World, monkeypatch: pytest.MonkeyPatch) -> None:
     org = await make_org(pgw)
     ref = await pgw.add(org.writer, org.node, "Refunds settle in five business days")
@@ -110,7 +105,6 @@ async def test_update_entry_race_is_a_conflict(pgw: World, monkeypatch: pytest.M
     assert sorted(res) == ["conflict", "ok"]
 
 
-# H. Archiving an entry while its node is archived double-decrements term_df.
 async def test_concurrent_archive_keeps_term_df_exact(pgw: World, monkeypatch: pytest.MonkeyPatch) -> None:
     org = await make_org(pgw)
     ref = await pgw.add(org.writer, org.node, "Chargebacks freeze the payout for ten days")
@@ -125,7 +119,6 @@ async def test_concurrent_archive_keeps_term_df_exact(pgw: World, monkeypatch: p
     assert drift == {}
 
 
-# H2. Concurrent update + archive of the same entry: archive decrements the stale (pre-update) tokens.
 async def test_concurrent_update_and_archive_keep_term_df_exact(pgw: World, monkeypatch: pytest.MonkeyPatch) -> None:
     org = await make_org(pgw)
     ref = await pgw.add(org.writer, org.node, "Chargebacks freeze the payout for ten days")
@@ -140,7 +133,7 @@ async def test_concurrent_update_and_archive_keep_term_df_exact(pgw: World, monk
     assert drift == {}
 
 
-# T. term_df upserts are sorted per statement but not per transaction: crossing updates deadlock.
+# The swapped tokens deadlock unless term_df upserts are sorted per transaction.
 async def test_crossing_updates_do_not_deadlock(pgw: World, monkeypatch: pytest.MonkeyPatch) -> None:
     org = await make_org(pgw)
     a = await pgw.add(org.writer, org.node, "Alpha zebra quokka")
@@ -154,7 +147,6 @@ async def test_crossing_updates_do_not_deadlock(pgw: World, monkeypatch: pytest.
     assert res == ["ok", "ok"]
 
 
-# Q. Two concurrent bootstraps with the setup token both create an instance admin.
 async def test_bootstrap_creates_one_instance_admin(monkeypatch: pytest.MonkeyPatch) -> None:
     base = os.environ.get("CAIRN_TEST_PG_URL") or pytest.skip("needs CAIRN_TEST_PG_URL")
     name = f"review_{uuid.uuid4().hex[:10]}"

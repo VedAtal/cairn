@@ -1,5 +1,3 @@
-"""MCP over streamable HTTP with the SDK client: the five tools, their result text and their error text."""
-
 from __future__ import annotations
 
 import json

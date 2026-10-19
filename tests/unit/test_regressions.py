@@ -1,5 +1,3 @@
-"""Regressions from the adversarial review (SQLite). Each test asserts the behavior DESIGN.md requires."""
-
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -10,7 +8,6 @@ from cairn.models import EntryFields, GetRequest
 from tests.conftest import Org, World, outcome
 
 
-# A. Team admin appoints (and removes) team admins; DESIGN §5 reserves "appoint team admins" to the instance admin.
 async def test_team_admin_cannot_appoint_team_admins(org: Org) -> None:
     w = org.w
     res = await outcome(w.admin(org.admin, "set_team_member", team="eng", email="otto@acme.dev", role="admin"))
@@ -18,7 +15,6 @@ async def test_team_admin_cannot_appoint_team_admins(org: Org) -> None:
     assert res == "admin_required"
 
 
-# B. Removing a user from the team leaves their project grants: they keep reading and writing the team's projects.
 async def test_removed_team_member_loses_project_access(org: Org) -> None:
     w = org.w
     await w.add(org.writer, org.node, "Invoices are numbered per account")
@@ -30,10 +26,9 @@ async def test_removed_team_member_loses_project_access(org: Org) -> None:
     assert hits == [] and wrote == "not_found"
 
 
-# B2. A team admin can grant project access to any user of the instance, even one outside the team.
 async def test_team_admin_cannot_grant_project_to_outsider(org: Org) -> None:
     w = org.w
-    outsider = await w.user("zed@other.dev")  # no team at all
+    outsider = await w.user("zed@other.dev")
     await w.add(org.writer, org.node, "Invoices are numbered per account")
     res = await outcome(w.admin(org.admin, "set_project_member", project=org.project, email="zed@other.dev",
                                 role="read"))
@@ -42,7 +37,6 @@ async def test_team_admin_cannot_grant_project_to_outsider(org: Org) -> None:
     assert hits == []
 
 
-# C. read_only / no_admin keys mint new keys and revoke the owner's other keys.
 async def test_narrowed_keys_cannot_manage_keys(org: Org) -> None:
     w = org.w
     full = (await w.admin(org.writer, "create_key", name="laptop"))["api_key"]
@@ -50,10 +44,9 @@ async def test_narrowed_keys_cannot_manage_keys(org: Org) -> None:
     minted = await outcome(w.admin(narrow, "create_key", name="persist"))
     revoked = await outcome(w.admin(narrow, "revoke_key", prefix=full[:16]))
     assert minted == revoked == "admin_required"
-    assert (await w.admin(await w.principal(full), "whoami"))["email"] == "wes@acme.dev"  # the full key still works
+    assert (await w.admin(await w.principal(full), "whoami"))["email"] == "wes@acme.dev"
 
 
-# D. Moving an entry out of an archived node leaves is_searchable false: invisible, tombstoned, missing from term_df.
 async def test_entry_moved_out_of_archived_node_is_visible(org: Org) -> None:
     w = org.w
     old = await w.node(org.writer, org.node, "old")
@@ -67,11 +60,10 @@ async def test_entry_moved_out_of_archived_node_is_visible(org: Org) -> None:
         row = (await conn.execute(select(entries.c.archived_at, entries.c.is_searchable, entries.c.node_id)
                                   .where(entries.c.id == int(ref.rsplit("e", 1)[1])))).one()
     print("move ->", moved, "| row:", row, "| get:", item.status, item.tombstone, "| search:", hits)
-    # Either the move is refused (409 archived) or the entry is searchable in its new, live node.
+    # Refusing the move is also acceptable.
     assert moved == "archived" or (item.status == "ok" and hits == [ref])
 
 
-# E. Writes inside an archived subtree succeed (DESIGN §4.3: 409 archived).
 async def test_writes_inside_archived_subtree_are_refused(org: Org) -> None:
     w = org.w
     ref = await w.add(org.writer, org.node, "Chargebacks freeze the payout for ten days")
@@ -88,18 +80,16 @@ async def test_writes_inside_archived_subtree_are_refused(org: Org) -> None:
     assert set(results.values()) == {"archived"}
 
 
-# I. Admin ops ignore the ref's store alias: flagging "other:e1" flags this store's e1.
 async def test_admin_flag_checks_store_alias(org: Org) -> None:
     w = org.w
     ref = await w.add(org.writer, org.node, "Invoices are numbered per account")
-    foreign = "me:" + ref.split(":", 1)[1]  # same id, another store's alias
+    foreign = "me:" + ref.split(":", 1)[1]
     res = await outcome(w.admin(org.admin, "flag", ref=foreign))
     [item] = await w.get(org.reader, ref)
     print(f"flag {foreign} on store acme ->", res, "| acme entry inject =", item.inject)
     assert res == "bad_ref" and not item.inject
 
 
-# M. Injected text is not neutralized: control tags in a flagged entry reach the session verbatim.
 async def test_inject_neutralizes_control_tags(org: Org) -> None:
     from cairn.core.inject import render
 
@@ -112,7 +102,6 @@ async def test_inject_neutralizes_control_tags(org: Org) -> None:
     assert "<system-reminder>" not in text
 
 
-# P. Team slugs leak to anyone: an existing team answers 403, an absent one 404.
 async def test_team_existence_does_not_leak(world: World) -> None:
     await world.admin(world.root, "create_team", slug="secret_team")
     nobody = await world.user("nobody@acme.dev")
@@ -122,7 +111,6 @@ async def test_team_existence_does_not_leak(world: World) -> None:
     assert exists == absent
 
 
-# R. get silently drops a ref that isn't in canonical form (the item comes back under the canonical ref).
 async def test_get_answers_every_ref(org: Org) -> None:
     from cairn.core.store import Federation
 
@@ -133,7 +121,6 @@ async def test_get_answers_every_ref(org: Org) -> None:
     assert len(res.items) == 1
 
 
-# Every tool result is capped, the admin tool's included.
 async def test_admin_result_is_capped(world: World) -> None:
     for i in range(150):
         await world.admin(world.root, "create_user", email=f"user{i:03}@acme.dev", name=f"User {i}")

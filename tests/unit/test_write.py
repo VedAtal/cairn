@@ -1,5 +1,3 @@
-"""The write path on SQLite: validation, secrets, dedup, revisions, archive, moves, nodes, and term_df upkeep."""
-
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +25,6 @@ async def counts(w: World) -> dict[str, int]:
 
 
 async def assert_index_exact(w: World) -> None:
-    """term_df equals a recount over searchable entries; vocab holds their tokens, never opaque ones."""
     async with w.store.engine.connect() as conn:
         rows = (await conn.execute(select(entries.c.project_id, entries.c.an_head, entries.c.an_body,
                                           entries.c.is_searchable))).all()
@@ -45,9 +42,6 @@ async def assert_index_exact(w: World) -> None:
 
 async def found(w: World, org: Org, ref: str, *concepts: str) -> bool:
     return ref in [h.ref for h in await w.search(org.admin, *concepts)]
-
-
-# --- validation and secrets ----------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(("fields", "result"), [
@@ -109,8 +103,6 @@ async def test_high_entropy_strings_are_rejected(org: Org) -> None:
     assert await outcome(org.w.add(org.writer, org.node, "Signing setup", body=body)) == "secret"
 
 
-# --- dedup -----------------------------------------------------------------------------------------------------------
-
 STRIPE = ("Stripe webhooks retry for up to 3 days, so handlers must be idempotent",
           "Stripe resends failed events with exponential backoff for 72 hours; store processed event ids.")
 
@@ -148,9 +140,6 @@ async def test_dedup_spans_readable_projects_only(org: Org) -> None:
     assert await outcome(w.add(org.writer, org.node, "Kafka consumers lag behind after deploys")) == "duplicate"
 
 
-# --- revisions and verify --------------------------------------------------------------------------------------------
-
-
 async def test_update_needs_current_base_revision(org: Org) -> None:
     w = org.w
     ref = await w.add(org.writer, org.node, "Refunds take 5 business days", body="Stripe default.")
@@ -182,9 +171,6 @@ async def test_verify_bumps_verified_without_a_revision(org: Org) -> None:
     assert after.verified_at > before.verified_at and after.rev == before.rev == 1
     assert after.verified_by == org.admin.user_id != before.verified_by
     assert await outcome(w.write(org.reader, "verify", ref=ref)) == "read_only"
-
-
-# --- archive -------------------------------------------------------------------------------------------------------
 
 
 async def test_archive_hides_entry_everywhere_and_unarchive_restores(org: Org) -> None:
@@ -237,13 +223,10 @@ async def test_node_archive_cascades_to_subtree(org: Org) -> None:
     assert await outcome(w.add(org.writer, child, "Anything new")) == "archived"
     assert await outcome(w.node(org.writer, child, "sub")) == "archived"
     await assert_index_exact(w)
-    # Unarchiving the top restores everything except the subtree that was archived on its own.
+    # A subtree archived on its own stays archived.
     await w.write(org.writer, "unarchive", ref=org.node)
     assert await state() == ["ok", "ok", "archived", "ok", "archived", "ok"]
     await assert_index_exact(w)
-
-
-# --- move and nodes --------------------------------------------------------------------------------------------------
 
 
 async def test_move_within_project(org: Org) -> None:
@@ -258,7 +241,7 @@ async def test_move_within_project(org: Org) -> None:
     assert node.path == "payments/billing"
     [hit] = await w.search(org.writer, "chargeback")
     assert hit.node_ref == payments
-    await w.write(org.writer, "move", ref=org.node, project=org.project)  # back to the top level
+    await w.write(org.writer, "move", ref=org.node, project=org.project)
     [node] = await w.get(org.writer, org.node)
     assert node.path == "billing"
 
@@ -318,7 +301,7 @@ async def test_term_df_stays_exact(org: Org) -> None:
         ("unarchive", {"ref": b}, "ok"),
         ("archive", {"ref": child}, "ok"),
         ("update", {"ref": c, "base_revision": 1, "entry": EntryFields(body="queue name billing_hooks")},
-         "archived"),  # inside an archived subtree,
+         "archived"),  # inside an archived subtree
         ("unarchive", {"ref": child}, "ok"),
         ("archive", {"ref": a}, "ok"),
         ("archive", {"ref": org.node}, "ok"),
@@ -332,7 +315,7 @@ async def test_term_df_stays_exact(org: Org) -> None:
 
 
 async def test_underscore_in_slugs_is_not_a_wildcard(org: Org) -> None:
-    """Slugs allow "_", a LIKE wildcard: subtree matches must not reach a sibling that differs only there."""
+    """A LIKE on "my_node" would also match "myxnode"."""
     w = org.w
     a = await w.node(org.writer, org.project, "my_node")
     b = await w.node(org.writer, org.project, "myxnode")

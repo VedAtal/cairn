@@ -1,6 +1,3 @@
-"""Access rules end to end: project isolation, members without projects, read-only members, admin-only ops, and the
-lock on injected content."""
-
 from __future__ import annotations
 
 import pytest
@@ -10,7 +7,6 @@ from .conftest import Api, World
 
 @pytest.fixture(scope="module")
 def entries(world: World) -> dict[str, str]:
-    """One entry in each project, written by its writer."""
     bob, eve = Api(world.bob), Api(world.eve)
     billing_node = bob.node(world.billing, "dunning", "Dunning", "Retrying failed card payments.")
     search_node = eve.node(world.search, "indexing", "Indexing", "How documents reach the search index.")

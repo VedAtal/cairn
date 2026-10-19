@@ -1,5 +1,3 @@
-"""The write path: validate, scan for secrets, check for duplicates, then write with revisions and index upkeep."""
-
 from __future__ import annotations
 
 import math
@@ -38,8 +36,6 @@ _SECRETS = {
 
 
 class WriteError(Exception):
-    """Maps to 409 (conflict, duplicate, archived) or 422 (invalid input)."""
-
     def __init__(self, message: str, code: str = "invalid", duplicates: list[Duplicate] | None = None) -> None:
         super().__init__(message)
         self.code = code
@@ -94,7 +90,7 @@ def validate_entry(fields: EntryFields, current: dict[str, Any] | None = None) -
         raise WriteError(f"title must be ≤ {MAX_TITLE} characters and body ≤ {MAX_BODY}; write one fact per entry")
     keywords = _keywords(merged.get("keywords") or [], MAX_KEYWORDS)
     title_words = set(analyze(title))
-    keywords = [k for k in keywords if not set(analyze(k)) <= title_words]  # only words the title lacks
+    keywords = [k for k in keywords if not set(analyze(k)) <= title_words]
     _check_secrets(title, body, *keywords)
     return {"type": merged["type"], "title": title, "body": body, "keywords": keywords}
 
@@ -112,12 +108,8 @@ def validate_node(fields: NodeFields, current: dict[str, Any] | None = None) -> 
     return {"slug": slug, "title": title, "summary": summary, "keywords": keywords}
 
 
-# --- index upkeep -------------------------------------------------------------------------------------------------
-
-
 async def _apply_df(conn: AsyncConnection, project_id: int, deltas: Counter[str]) -> None:
-    """Apply a transaction's document-frequency changes in ONE sorted upsert: separate statements could take
-    term_df row locks in different orders and deadlock against a concurrent write in the same project."""
+    """One sorted upsert: separate statements could lock rows out of order and deadlock."""
     changed = sorted(t for t, d in deltas.items() if d)
     if not changed:
         return
@@ -139,7 +131,6 @@ def _entry_tokens(row: Any) -> set[str]:
 
 
 async def _fts(conn: AsyncConnection, table: str, row_id: int, cols: dict[str, str] | None) -> None:
-    """Keep the SQLite FTS5 mirror in step (Postgres indexes the columns directly)."""
     if conn.dialect.name != "sqlite":
         return
     await conn.execute(text(f"DELETE FROM {table}_fts WHERE rowid = :id"), {"id": row_id})
@@ -154,11 +145,7 @@ async def _log(conn: AsyncConnection, project_id: int, ref: str, op: str, user: 
                                                   summary=summary[:200]))
 
 
-# --- lookups and guards -------------------------------------------------------------------------------------------
-
-
 async def get_node(conn: AsyncConnection, scope: Scope, node_id: int, lock: bool = False) -> Row[Any]:
-    """`lock` takes the row lock writes need, so concurrent writers serialize instead of acting on stale reads."""
     q = select(nodes).where(nodes.c.id == node_id)
     node = (await conn.execute(q.with_for_update() if lock else q)).first()
     if node is None:
@@ -178,7 +165,6 @@ async def get_entry(conn: AsyncConnection, scope: Scope, entry_id: int, lock: bo
 
 async def _guard(conn: AsyncConnection, scope: Scope, node: Row[Any], entry: Row[Any] | None = None,
                  subtree: bool = False) -> None:
-    """Writers may change a project's content, except anything injected at startup, which only admins touch."""
     scope.require_write(node.project_id)
     if scope.is_team_admin(scope.project_team[node.project_id]):
         return
@@ -233,9 +219,6 @@ def similarity(head: set[str], title: str, body: set[str], other_head: set[str],
 def _trigrams(value: str) -> set[str]:
     value = f"  {value.lower()} "
     return {value[i : i + 3] for i in range(len(value) - 2)}
-
-
-# --- entry operations ---------------------------------------------------------------------------------------------
 
 
 async def add_entry(conn: AsyncConnection, scope: Scope, node_id: int, fields: EntryFields,
@@ -300,7 +283,6 @@ async def verify_entry(conn: AsyncConnection, scope: Scope, entry_id: int) -> No
 
 async def archive(conn: AsyncConnection, scope: Scope, kind: str, item_id: int, reason: str | None,
                   restore: bool = False) -> None:
-    """Soft-delete (or restore) an entry or a node's subtree. Archived content is excluded from everything."""
     user, ts = scope.principal.user_id, now()
     values = {"archived_at": None, "archived_by": None, "archive_reason": None} if restore else \
         {"archived_at": ts, "archived_by": user, "archive_reason": clean(reason or "") or None}
@@ -322,7 +304,6 @@ async def archive(conn: AsyncConnection, scope: Scope, kind: str, item_id: int, 
 
 
 async def refresh_searchable(conn: AsyncConnection, project_id: int, path: str) -> None:
-    """Recompute is_searchable for the subtree at `path` after an archive change, keeping term_df exact."""
     parts = path.split("/")
     ancestors = ["/".join(parts[:i]) for i in range(1, len(parts))]
     archived_above = (await conn.execute(select(nodes.c.id).where(
@@ -332,7 +313,7 @@ async def refresh_searchable(conn: AsyncConnection, project_id: int, path: str) 
         nodes.c.project_id == project_id, (nodes.c.path == path) | nodes.c.path.startswith(f"{path}/", autoescape=True)
     ).order_by(nodes.c.depth, nodes.c.id).with_for_update())).all()
     deltas: Counter[str] = Counter()
-    dead: set[str] = set()  # paths of archived nodes within the subtree
+    dead: set[str] = set()
     for n in subtree:
         if n.archived_at is not None:
             dead.add(n.path)
@@ -402,9 +383,6 @@ async def _reparent(conn: AsyncConnection, node: Row[Any], parent_id: int | None
             values["parent_id"] = parent_id
         await conn.execute(update(nodes).where(nodes.c.id == n.id).values(**values))
         await _fts(conn, "nodes", n.id, {"an_head": n.an_head, "an_desc": an_desc})
-
-
-# --- node operations ----------------------------------------------------------------------------------------------
 
 
 async def create_node(conn: AsyncConnection, scope: Scope, project_id: int | None, parent_id: int | None,

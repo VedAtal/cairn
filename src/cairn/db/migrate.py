@@ -1,5 +1,3 @@
-"""Run Alembic migrations at startup. On Postgres an advisory lock lets exactly one replica migrate."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,7 +8,7 @@ from sqlalchemy import text
 
 from .engine import make_sync_engine
 
-LOCK_KEY = 0x0CA1_2B0B  # arbitrary, stable advisory-lock key
+LOCK_KEY = 0x0CA1_2B0B
 
 
 def alembic_config() -> Config:
@@ -20,7 +18,6 @@ def alembic_config() -> Config:
 
 
 def upgrade(url: str) -> None:
-    """Upgrade the database at `url` to head. Blocking; call via a thread from async code."""
     engine = make_sync_engine(url)
     try:
         with engine.connect() as conn:

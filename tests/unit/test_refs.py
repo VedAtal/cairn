@@ -1,5 +1,3 @@
-"""Refs: `<store>:e<id>`, `n`, `p`."""
-
 from __future__ import annotations
 
 import pytest

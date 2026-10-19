@@ -1,6 +1,3 @@
-"""A local server (`cairn serve --local`) federating to the hosted one: merged reads, writes routed by ref prefix,
-and an unreachable remote reported instead of failing."""
-
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -20,7 +17,7 @@ def local(world: World, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Lo
 
 @pytest.fixture(scope="module")
 def orphan(world: World, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Local]:
-    """A local server whose remote is down (nothing listens on its port)."""
+    """A local server whose remote is down."""
     home = tmp_path_factory.mktemp("orphan") / ".cairn"
     write_config(home, f"http://127.0.0.1:{free_port()}", world.bob, world.alias)
     yield from start_local(home)
@@ -28,7 +25,6 @@ def orphan(world: World, tmp_path_factory: pytest.TempPathFactory) -> Iterator[L
 
 @pytest.fixture(scope="module")
 def seeded(world: World, local: Local) -> dict[str, str]:
-    """One flagged entry in each store about the same thing, written through the local server."""
     me, a = Api(local.token, local.url), world.alias
     me_node = me.node("me:p1", "webhooks", "Webhooks", "Personal notes on webhook delivery.")
     remote_node = me.node(world.billing, "webhook_delivery", "Webhook delivery", "Outbound merchant webhooks.")

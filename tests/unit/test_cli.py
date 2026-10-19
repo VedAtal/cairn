@@ -1,5 +1,3 @@
-"""CLI: service files, the TOML writer, harness setup, the startup hook, and the fast-path import budget."""
-
 from __future__ import annotations
 
 import json
@@ -20,7 +18,6 @@ MATCHER = "startup|resume|clear|compact|fork"
 
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A temp HOME, CAIRN_HOME and CODEX_HOME, with local mode enabled on port 6804."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("CAIRN_HOME", str(tmp_path / ".cairn"))
@@ -31,7 +28,6 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def snapshot(root: Path) -> dict[str, str]:
-    """Every harness file under the temp HOME (CAIRN_HOME excluded)."""
     files = (p for p in root.rglob("*") if p.is_file() and p.relative_to(root).parts[0] != ".cairn")
     return {str(p.relative_to(root)): p.read_text() for p in sorted(files)}
 
@@ -47,7 +43,7 @@ def cli(*args: str, cairn_home: Path, stdin: str = "{}") -> subprocess.Completed
                           text=True, timeout=30, env={**os.environ, "CAIRN_HOME": str(cairn_home)})
 
 
-def set_remote(url: str = "http://127.0.0.1:9") -> None:  # port 9: nothing listens, so connections are refused
+def set_remote(url: str = "http://127.0.0.1:9") -> None:  # port 9: nothing listens
     config.update_toml("config.toml", "remote", {"url": url, "alias": "acme"})
     config.update_toml("credentials.toml", "remote", {"api_key": "k"})
 
@@ -269,7 +265,6 @@ def test_fast_paths_do_not_import_server_stack(tmp_path: Path, monkeypatch: pyte
 
 
 def test_rewire_follows_local_and_remote_changes(home: Path) -> None:
-    """Changing local/remote rewrites the harness configs, and a stale helper refuses to hand out a credential."""
     from cairn.cli import main as cli_main
 
     set_remote("https://cairn.acme.dev")
@@ -284,5 +279,5 @@ def test_rewire_follows_local_and_remote_changes(home: Path) -> None:
     stale = cli("auth", "header", "--server", "http://127.0.0.1:6804/mcp", cairn_home=home / ".cairn")
     assert stale.returncode == 1 and stale.stdout == "" and "now serves https://cairn.acme.dev/mcp" in stale.stderr
     config.update_toml("config.toml", "remote", None)
-    cli_main.rewire()  # nothing left to connect to: the harness entry is removed
+    cli_main.rewire()
     assert not claude_json.exists()  # it held only Cairn's entry

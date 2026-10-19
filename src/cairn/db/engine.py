@@ -1,5 +1,3 @@
-"""Database engines. Postgres via psycopg 3; SQLite via aiosqlite on a single connection."""
-
 from __future__ import annotations
 
 from typing import Any
@@ -9,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 
 def dialect_url(url: str, *, sync: bool = False) -> str:
-    """Normalize `postgresql://` / `sqlite:///` URLs to the drivers Cairn uses."""
     for prefix, async_driver, sync_driver in (
         ("postgresql://", "postgresql+psycopg://", "postgresql+psycopg://"),
         ("postgres://", "postgresql+psycopg://", "postgresql+psycopg://"),
@@ -30,8 +27,7 @@ def _sqlite_pragmas(dbapi_conn: Any, _: Any) -> None:
 def make_engine(url: str) -> AsyncEngine:
     url = dialect_url(url)
     if url.startswith("sqlite"):
-        # One connection: the local server is the file's only user, and serializing access avoids
-        # concurrent checkpoints (the trigger for SQLite's WAL-reset bug in older builds).
+        # One connection: no concurrent checkpoints to trigger SQLite's WAL-reset bug.
         engine = create_async_engine(url, pool_size=1, max_overflow=0)
         event.listen(engine.sync_engine, "connect", _sqlite_pragmas)
         return engine

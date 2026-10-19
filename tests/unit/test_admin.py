@@ -1,5 +1,3 @@
-"""Admin ops: accounts, keys, membership, projects and flags."""
-
 from __future__ import annotations
 
 from cairn.core import admin

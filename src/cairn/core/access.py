@@ -1,5 +1,3 @@
-"""Who can see and change what. Every query filters by the scope computed here (never by RLS)."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -11,8 +9,6 @@ from ..db.schema import nodes, project_members, projects, team_members, teams
 
 
 class AccessError(Exception):
-    """Maps to 403 (or 404 when the target is unreadable, so unauthorized looks like absent)."""
-
     def __init__(self, message: str, code: str = "forbidden") -> None:
         super().__init__(message)
         self.code = code
@@ -26,7 +22,6 @@ class NotFound(Exception):
 class Principal:
     user_id: int
     instance_admin: bool = False
-    # Limits carried by the API key. Keys otherwise carry their owner's full powers, admin included.
     read_only: bool = False
     no_admin: bool = False
 
@@ -34,7 +29,7 @@ class Principal:
 @dataclass
 class Scope:
     principal: Principal
-    readable: set[int] = field(default_factory=set)  # project ids (non-archived projects in non-archived teams)
+    readable: set[int] = field(default_factory=set)
     writable: set[int] = field(default_factory=set)
     admin_teams: set[int] = field(default_factory=set)  # includes archived teams, so admins can unarchive
     project_team: dict[int, int] = field(default_factory=dict)
@@ -86,9 +81,7 @@ async def scope_for(conn: AsyncConnection, principal: Principal) -> Scope:
         scope.project_team[pid] = tid
         if archived is not None or tid not in live_teams:
             continue
-        # Team admins (and the instance admin) see and write everything in the team, even with a no_admin key.
         full = principal.instance_admin or team_roles.get(tid) == "admin"
-        # Project roles count only while the user is still in the project's team.
         role = "write" if full else (project_roles.get(pid) if tid in team_roles else None)
         if role:
             scope.readable.add(pid)
@@ -98,7 +91,6 @@ async def scope_for(conn: AsyncConnection, principal: Principal) -> Scope:
 
 
 async def inject_locked(conn: AsyncConnection, node_path: str, project_id: int) -> bool:
-    """True if the node at `node_path`, or any ancestor, is flagged for injection."""
     parts = node_path.split("/")
     ancestors = ["/".join(parts[: i + 1]) for i in range(len(parts))]
     flagged = await conn.execute(

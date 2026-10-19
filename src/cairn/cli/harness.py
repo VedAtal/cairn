@@ -1,6 +1,3 @@
-"""`cairn setup claude|codex`: connect a harness to Cairn (MCP server, startup hook, permissions, wrap-up skill,
-pointer line). Edits merge into the user's files, and --uninstall removes exactly what setup added."""
-
 from __future__ import annotations
 
 import json
@@ -23,7 +20,7 @@ WRITE_TOOL = "mcp__cairn__write"
 HINTS = {"claude": "cairn: start a new Claude Code session to load Cairn",
          "codex": "cairn: open /hooks in codex and trust the cairn hook"}
 
-Changes = dict[Path, str | None]  # new file contents; None deletes the file
+Changes = dict[Path, str | None]
 
 
 def codex_home() -> Path:
@@ -64,7 +61,6 @@ def setup(harness: str, dry_run: bool = False, uninstall: bool = False, allow_wr
 
 
 def configured() -> list[list[str]]:
-    """`cairn setup` arguments that redo each harness's current cairn setup (for `cairn upgrade`)."""
     found = []
     if "cairn" in _load_json(Path.home() / ".claude.json").get("mcpServers", {}):
         allow = _load_json(Path.home() / ".claude/settings.json").get("permissions", {}).get("allow", [])
@@ -80,8 +76,7 @@ def _claude(cairn: str, url: str | None, writes: bool) -> Changes:
     config_path, settings_path = home / ".claude.json", home / ".claude/settings.json"
     md_path = home / ".claude/CLAUDE.md"
     config = _load_json(config_path)
-    # The helper names its endpoint, so a stale config can't hand one server's credential to another.
-    # alwaysLoad: the harness waits for Cairn at startup, so `search` is there for the first prompt.
+    # --server: a stale config can't hand one server's credential to another.
     server = {"type": "http", "url": url, "headersHelper": f'"{cairn}" auth header --server {url}', "alwaysLoad": True}
     _put(config, ["mcpServers", "cairn"], server if url else None)
 
@@ -139,7 +134,7 @@ def _codex(cairn: str, url: str | None, writes: bool) -> Changes:
 
 
 def _skill() -> str:
-    from importlib import resources  # slow to import, and the startup hook never needs it
+    from importlib import resources  # slow import; the startup hook never needs it
 
     return (resources.files("cairn") / "assets" / "wrapup.md").read_text()
 
@@ -154,14 +149,13 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _dump_json(path: Path, data: dict[str, Any]) -> str | None:
-    """The file's new text; unchanged data keeps the user's formatting."""
     if data == _load_json(path):
         return path.read_text() if path.exists() else None
     return json.dumps(data, indent=2) + "\n" if data else None
 
 
 def _put(data: dict[str, Any], keys: list[str], value: Any) -> None:
-    """Set a nested key, creating parents; an empty value deletes it and prunes parents it leaves empty."""
+    """A falsy value deletes the key and prunes parents left empty."""
     parents = [data]
     for key in keys[:-1]:
         parents.append(parents[-1].setdefault(key, {}))
@@ -176,7 +170,6 @@ def _put(data: dict[str, Any], keys: list[str], value: Any) -> None:
 
 
 def _hook_entries(entries: list[Any], ours: Callable[[dict[str, Any]], bool], new: dict[str, Any] | None) -> list[Any]:
-    """Replace the cairn SessionStart entry in place (append if absent); None removes it."""
     out, placed = [], False
     for entry in entries:
         if not any(ours(h) for h in entry.get("hooks", [])):
@@ -190,7 +183,6 @@ def _hook_entries(entries: list[Any], ours: Callable[[dict[str, Any]], bool], ne
 
 
 def _block(text: str, markers: tuple[str, str], body: str | None) -> str | None:
-    """Insert, replace or (body None) remove the managed block between two marker lines. None: file now empty."""
     begin, end = markers
     pattern = re.compile(rf"(\n?){re.escape(begin)}\n.*?{re.escape(end)}\n?", re.S)
     if body is None:

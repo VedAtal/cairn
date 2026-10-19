@@ -1,5 +1,3 @@
-"""REST flows against the hosted server: health, bootstrap, write, search, get, map and inject."""
-
 from __future__ import annotations
 
 import os

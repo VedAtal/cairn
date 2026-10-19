@@ -1,5 +1,4 @@
-"""`cairn` command line. Stdlib only: only `cairn serve` imports the server stack, so the startup hook
-(`cairn inject`) and the header helper (`cairn auth header`) start fast."""
+"""Stdlib only, so `cairn inject` and `cairn auth header` start fast."""
 
 from __future__ import annotations
 
@@ -32,8 +31,8 @@ from .config import (
 )
 
 CACHE_MAX_AGE = 7 * 86400
-SOURCE = "git+https://github.com/VedAtal/cairn"  # not on PyPI; CAIRN_SOURCE overrides (another git URL or a path)
-# Tool installs ignore the project's lockfile and [tool.uv] settings, so pin the Python and the 7-day buffer here.
+SOURCE = "git+https://github.com/VedAtal/cairn"  # not on PyPI
+# Tool installs ignore the lockfile and [tool.uv], so pin Python and the 7-day buffer.
 UV_TOOL_FLAGS = ["--managed-python", "--python", "3.14", "--exclude-newer", "7 days"]
 
 
@@ -64,7 +63,7 @@ def auth_header(server: str | None) -> None:
 
 
 def inject(budget: int) -> dict[str, Any]:
-    """The SessionStart hook output. Never raises: a broken hook must not break the session."""
+    """Never raises: a broken hook must not break the session."""
     deadline = time.monotonic() + 4.0
     cache = home() / "cache" / "inject.json"
     try:
@@ -86,13 +85,13 @@ def inject(budget: int) -> dict[str, Any]:
             cache.unlink(missing_ok=True)
             return _hook("", "Cairn: credentials rejected; run cairn remote add")
         reason = f"server error {status}"
-    except Exception as exc:  # noqa: BLE001 - see docstring
+    except Exception as exc:  # noqa: BLE001
         timed_out = isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError)
         reason = "timed out" if timed_out else "server unreachable"
     try:
         fresh = cache.stat().st_mtime > time.time() - CACHE_MAX_AGE
         cached: str | None = json.loads(cache.read_text())["text"] if fresh else None
-    except Exception:  # noqa: BLE001 - no usable cache
+    except Exception:  # noqa: BLE001
         cached = None
     if cached is None:
         return _hook("", f"Cairn: {reason}; no cached context")
@@ -107,7 +106,6 @@ def _hook(context: str, message: str | None = None) -> dict[str, Any]:
 
 
 def _drain_stdin() -> None:
-    """Consume the hook's JSON (its content is unused) without ever blocking on a terminal or an open pipe."""
     with contextlib.suppress(OSError, ValueError):
         if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 0.2)[0]:
             os.read(sys.stdin.fileno(), 1 << 20)
@@ -154,7 +152,7 @@ def _refuse_second_remote(replace: bool) -> None:
 
 
 def _restart_local() -> None:
-    """A running local server reads the remote at startup, so restart it to (stop) federating."""
+    """A running server reads the remote only at startup."""
     if port := local_port():
         local.start(restart=True)
         local.wait_ready(port, 20)
@@ -171,8 +169,6 @@ def local_disable() -> None:
 
 
 def rewire() -> None:
-    """Harness configs name the endpoint (local server or remote); point them at the current one, or remove them
-    when there is nothing left to connect to."""
     try:
         harness.endpoint()
     except CliError:
@@ -184,8 +180,7 @@ def rewire() -> None:
 
 
 def _persist(argv: list[str]) -> None:
-    """Under `uvx`, the running binary lives in uv's disposable cache: install the tool for good and re-run from it,
-    so the hooks, header helpers and service written below don't point into a cache that gets pruned."""
+    """Under uvx, reinstall as a tool so hooks and services don't point into uv's cache."""
     uv = shutil.which("uv")
     if not uv or "/archive-v" not in cairn_bin():
         return
@@ -233,7 +228,7 @@ def uninstall() -> None:
 
 def upgrade() -> None:
     uv = shutil.which("uv")
-    # --reinstall-package refreshes the package, so a git source fetches its latest commit.
+    # --reinstall-package makes a git source fetch its latest commit.
     flags = ["--reinstall-package", "cairnkb", "--exclude-newer", "7 days"]
     if not uv or subprocess.run([uv, "tool", "upgrade", "cairnkb", *flags]).returncode:
         raise CliError("uv tool upgrade cairnkb failed")

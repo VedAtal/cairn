@@ -1,5 +1,3 @@
-"""The analyzer is the only tokenizer: both databases index its output, so its rules are the search contract."""
-
 from __future__ import annotations
 
 import random

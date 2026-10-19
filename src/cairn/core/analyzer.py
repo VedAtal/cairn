@@ -1,10 +1,3 @@
-"""The only text analysis in Cairn. Both databases index this module's output, so they match identically.
-
-Tokens are `[a-z0-9]{1,64}`. Code identifiers are split into parts and also kept whole: `FileLoader` and
-`file_loader` both yield `file`, `loader`, `fileloader`. Alphabetic parts are Snowball-stemmed; whole identifiers
-aren't. Anything that can't be folded to ASCII becomes an opaque `zz<hash>` token.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -12,11 +5,11 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-from snowballstemmer.english_stemmer import EnglishStemmer  # direct import: the package swaps in PyStemmer if present
+from snowballstemmer.english_stemmer import EnglishStemmer  # avoids the package's PyStemmer swap-in
 
 ANALYZER_VERSION = "1"
 
-_CHUNK = re.compile(r"[^\W_]+(?:[_\-./:]+[^\W_]+)*")  # words joined by identifier connectors
+_CHUNK = re.compile(r"[^\W_]+(?:[_\-./:]+[^\W_]+)*")
 _CONNECTOR = re.compile(r"[_\-./:]+")
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _CODE_SHAPED = re.compile(r"[_\-./:]|[a-z][A-Z]|\d")
@@ -47,7 +40,6 @@ def _term(part: str) -> str:
 
 
 def _chunks(text: str) -> list[list[str]]:
-    """Identifier-ish runs of `text`, each split into folded parts."""
     out = []
     for match in _CHUNK.finditer(unicodedata.normalize("NFKC", text)):
         parts = [p for seg in _CONNECTOR.split(match.group()) for p in _CAMEL.split(seg) if p]
@@ -56,7 +48,6 @@ def _chunks(text: str) -> list[list[str]]:
 
 
 def analyze(text: str) -> list[str]:
-    """Document tokens, in order: stemmed parts, then the whole identifier when there was more than one part."""
     tokens: list[str] = []
     for parts in _chunks(text):
         tokens.extend(_term(p) for p in parts)
@@ -69,16 +60,15 @@ def analyzed_text(*texts: str) -> str:
     return " ".join(t for text in texts for t in analyze(text))
 
 
-# A query variant is an AND of chunks; a chunk matches through any one of its alternatives (each an AND of tokens).
 Alternative = frozenset[str]
 Chunk = tuple[Alternative, ...]
 
 
 @dataclass(frozen=True)
 class Variant:
-    raw: str  # the agent's own spelling, echoed back in results
+    raw: str
     chunks: tuple[Chunk, ...]
-    credit: int = 10  # tenths: exact 10, substring expansion 7 (generic halving is applied at rank time)
+    credit: int = 10
 
     @property
     def tokens(self) -> set[str]:
@@ -93,7 +83,6 @@ class Variant:
 
     @property
     def needle(self) -> str | None:
-        """The unstemmed whole token used for substring expansion, if this variant is a single identifier."""
         chunks = _chunks(self.raw)
         if len(chunks) != 1:
             return None
@@ -105,7 +94,7 @@ def variant(raw: str) -> Variant:
     chunks: list[Chunk] = []
     for parts in _chunks(raw):
         alternatives = [frozenset(_term(p) for p in parts)]
-        # The unstemmed whole word also matches identifiers split by case: query 'apns' finds 'APNs' (ap+ns+apns).
+        # The unstemmed whole word also matches case-split identifiers: 'apns' finds 'APNs'.
         whole = _token("".join(parts))
         if len(parts) > 1 or whole not in alternatives[0]:
             alternatives.insert(0, frozenset({whole}))

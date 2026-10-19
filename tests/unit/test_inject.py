@@ -1,5 +1,3 @@
-"""Startup injection: what gets collected, and rendering into a byte budget with fair shares."""
-
 from __future__ import annotations
 
 import re
@@ -69,7 +67,7 @@ def test_overflow_lists_every_item_not_shown(n: int) -> None:
     g = group("acme", n)
     text = render([g], 1500)
     listed = shown(text) | set(not_shown(text))
-    assert listed <= {i.ref for i in g.items} and len(listed) + more(text) == n  # every item accounted for
+    assert listed <= {i.ref for i in g.items} and len(listed) + more(text) == n
 
 
 def test_fair_shares_across_groups() -> None:

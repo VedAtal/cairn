@@ -1,7 +1,4 @@
 #!/bin/sh
-# Installs Cairn: uv (if missing), the cairn CLI, then `cairn install` with the given flags.
-#   curl -fsSL https://raw.githubusercontent.com/VedAtal/cairn/main/install.sh | sh -s -- [--local] [--remote URL]
-# Installs from the public GitHub repo; CAIRN_SOURCE can point at another git URL or a local checkout.
 set -eu
 
 if ! command -v uv >/dev/null 2>&1; then
@@ -9,11 +6,11 @@ if ! command -v uv >/dev/null 2>&1; then
     PATH="$HOME/.local/bin:$PATH"  # where the uv installer puts uv
 fi
 
-# Tool installs ignore the project's lockfile and settings, so pass its Python and the 7-day buffer here.
+# Tool installs ignore the lockfile and [tool.uv], so pin Python and the 7-day buffer.
 uv tool install --managed-python --python 3.14 --exclude-newer "7 days" "${CAIRN_SOURCE:-git+https://github.com/VedAtal/cairn}"
 cairn="$(uv tool dir --bin)/cairn"
 
-# Under `curl | sh` stdin is the script, so give the interactive questions the terminal when there is one.
+# Under curl | sh stdin is the script, so give the prompts the terminal if there is one.
 if [ ! -t 0 ] && (: </dev/tty) 2>/dev/null; then
     exec "$cairn" install "$@" </dev/tty
 fi
