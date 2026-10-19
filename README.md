@@ -13,6 +13,30 @@ skill. It's the knowledge you pick up through conversations and experience: the 
 never makes it into the code or the docs. So the goal is to give every agent session that context, and to have each
 session leave it richer for the next one, so agents build up the same tribal knowledge an engineering team does.
 
+## Features
+
+- **Local:** a personal store on your machine. The same server runs on SQLite, starts at login, listens only on
+  127.0.0.1, and can back itself up to a private git repo (`cairn git enable`).
+- **Remote:** a team store you host. Stateless containers (`ghcr.io/vedatal/cairn`) on managed Postgres, with
+  users, API keys and roles.
+- **Federation:** with both set up, agents see one MCP server. Search merges your store and your team's into one
+  ranked list, and writes go to whichever store you name.
+- **UI:** a web UI for both stores: browse, search, edit, archive, the change feed, admin pages, and a graph of each
+  project. `cairn ui` opens it logged in.
+- **Inject on startup:** admins flag nodes or entries, and every new agent session starts with them as standing
+  instructions. Acts like a team-wide AGENTS.md to enforce practices.
+- **Structure:** everything lives in one tree, and access is granted per project:
+
+```
+store                  me (local), or your team's server
+└── team               roles: admin, member
+    └── project        access: write or read
+        └── node       a topic; nodes nest up to 8 deep
+            ├── node
+            │   └── entry
+            └── entry  one fact: a gotcha, decision, reference, practice, …
+```
+
 ## Install
 
 ```sh
