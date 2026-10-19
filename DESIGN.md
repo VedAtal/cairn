@@ -595,7 +595,9 @@ created it, so a uv Python upgrade could re-prompt (unverified).
 ## 11. Git mode (local only)
 
 **Where:** a one-way mirror into the bare repo `~/.cairn/mirror.git` (branch `main`), optionally pushed to a private
-remote. `cairn git enable [--remote URL]` turns it on; `cairn git status`, `push` and `disable` manage it.
+remote. `cairn git enable [--remote URL]` turns it on, waits for the first commit and push, and fails loudly if
+they failed (git mode stays on and retries). `cairn git status`, `push` and `disable` manage it. Without a remote
+the backup stays on this machine.
 
 **Format:**
 

@@ -240,6 +240,11 @@ def test_inject_unreachable_falls_back_to_cache(tmp_path: Path, monkeypatch: pyt
     assert json.loads(cli("inject", cairn_home=tmp_path).stdout)["hookSpecificOutput"]["additionalContext"] == ""
 
 
+def test_no_command_prints_help(tmp_path: Path) -> None:
+    result = cli(cairn_home=tmp_path)
+    assert result.returncode == 0 and result.stdout.startswith("usage: cairn") and "upgrade" in result.stdout
+
+
 def test_auth_header(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result = cli("auth", "header", cairn_home=tmp_path)
     assert result.returncode == 1 and result.stdout == "" and "not configured" in result.stderr

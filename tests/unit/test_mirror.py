@@ -324,3 +324,32 @@ async def test_an_interrupted_git_purge_finishes_on_the_next_run(org: Org, tmp_p
     with pytest.raises(WriteError, match="commits this machine doesn't"):
         await m.purge_history()
     assert "x.md" in git(remote, "ls-tree", "-r", "--name-only", "main")
+
+
+def test_a_push_that_needs_a_password_explains_what_to_do(tmp_path: Path) -> None:
+    m = GitMirror(tmp_path / "mirror.git", "https://github.com/acme/backup", None)  # type: ignore[arg-type]
+    refused = b"fatal: could not read Username for 'https://github.com': terminal prompts disabled\n"
+    m.git = lambda *args, **kw: subprocess.CompletedProcess(args, 128, b"", refused)  # type: ignore[method-assign]
+    m._push()
+    assert m.state == "error" and "SSH URL" in (m.error or "") and "terminal prompts disabled" in (m.error or "")
+
+
+@pytest.mark.parametrize(("git", "said"), [
+    ({"state": "error", "error": "the server can't log in", "remote": "u", "pending_push": True}, "mirror failed"),
+    ({"state": "ok", "error": None, "remote": None, "pending_push": False}, "on this machine only"),
+    ({"state": "ok", "error": None, "remote": "git@github.com:a/b.git", "pending_push": False}, "backing up to git@"),
+])
+def test_git_enable_reports_how_the_first_sync_went(git: dict[str, Any], said: str, tmp_path: Path,
+                                                    monkeypatch: pytest.MonkeyPatch,
+                                                    capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("CAIRN_HOME", str(tmp_path))
+    for name, value in [("local_port", lambda: 6804), ("_restart", lambda: None), ("_port", lambda: 6804),
+                        ("_git_status", lambda port: git)]:
+        monkeypatch.setattr(gitmode, name, value)
+    monkeypatch.setattr(gitmode.time, "sleep", lambda s: None)
+    if git["state"] == "error":
+        with pytest.raises(CliError, match=said):
+            gitmode.enable(None, False)
+    else:
+        gitmode.enable(None, False)
+        assert said in capsys.readouterr().out

@@ -7,8 +7,10 @@ import re
 import shutil
 import subprocess
 import tarfile
+import time
 from contextlib import suppress
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote, urlsplit
 
 from . import local
@@ -25,7 +27,20 @@ def enable(remote: str | None, private_ok: bool) -> None:
     current = read_toml("config.toml").get("git", {})
     update_toml("config.toml", "git", {"enabled": True, "remote": remote or current.get("remote", "")})
     _restart()
-    status()
+    time.sleep(3)  # the server commits 2 s after it starts; show how that, and the first push, went
+    port, deadline = _port(), time.monotonic() + 20
+    while (git := _git_status(port))["pending_push"] and git["state"] in ("idle", "ok") and time.monotonic() < deadline:
+        time.sleep(0.5)
+    if git["state"] in ("error", "diverged"):
+        raise CliError(f"git mode is on, but the mirror failed: {git['error']}\nIt retries every 5 minutes; "
+                       "change the remote with cairn git enable --remote URL, or check with cairn git status")
+    if not git["remote"]:
+        print(f"backing up to {home() / 'mirror.git'} on this machine only; "
+              "add --remote URL (a private repo) to also push it off this machine")
+    elif git["pending_push"]:
+        print(f"backing up to {git['remote']}; the first push is still running, see cairn git status")
+    else:
+        print(f"backing up to {git['remote']} (and {home() / 'mirror.git'})")
 
 
 def disable() -> None:
@@ -35,11 +50,15 @@ def disable() -> None:
 
 
 def status() -> None:
-    port = _port()
+    print(json.dumps(_git_status(_port()), indent=1))
+
+
+def _git_status(port: int) -> dict[str, Any]:
     code, body = fetch(f"http://127.0.0.1:{port}/api/v1/status", token=proven_token(port))
     if code != 200:
         raise CliError(f"the local server answered {code}")
-    print(json.dumps(body["git"], indent=1))
+    git: dict[str, Any] = body["git"]
+    return git
 
 
 def push() -> None:

@@ -176,7 +176,7 @@ def enable(port: int | None, service: bool) -> None:
         start(restart=True)
     if not wait_ready(port, 20):
         raise CliError(f"the local server did not become ready; see {root / 'logs' / 'server.log'}")
-    print(port)
+    print(f"local Cairn is running at http://127.0.0.1:{port}" + (" and starts at login" if service else ""))
 
 
 def disable() -> None:

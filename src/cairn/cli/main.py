@@ -284,7 +284,7 @@ def upgrade() -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cairn", description="Cairn knowledge store")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
     p = sub.add_parser("serve", help="run the server (hosted: CAIRN_DB__URL; local: --local)")
     p.add_argument("--host", default="127.0.0.1")
@@ -369,7 +369,11 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if not args.command:
+        parser.print_help()
+        return 0
     try:
         args.run(args)
     except (CliError, *NETWORK_ERRORS) as exc:

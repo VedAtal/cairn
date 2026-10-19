@@ -15,6 +15,8 @@ from ..core import mirror
 from ..core.write import WriteError
 
 QUIET, RETRY, PUSH_TIMEOUT = 2.0, 300.0, 120.0
+AUTH_FAILED = ("could not read Username", "terminal prompts disabled", "Permission denied (publickey)",
+               "Authentication failed", "Repository not found")
 FOREIGN = ("mirror.git holds a store this database never wrote (was cairn.db lost?); restore it with cairn restore "
            "after moving cairn.db aside, or move mirror.git aside to start a new mirror")
 log = structlog.get_logger("cairn.git")
@@ -132,6 +134,10 @@ class GitMirror:
         self.state = "diverged" if diverged else "error"
         self.error = ("the remote has commits this machine doesn't (another machine writing to it?); "
                       "nothing was merged" if diverged else out.strip()[-300:])
+        if any(s in out for s in AUTH_FAILED):  # the login service can't answer a password prompt
+            self.error = ("the server can't log in to the remote, or the repo doesn't exist. Use an SSH URL "
+                          "(git@github.com:owner/repo.git) with a key that works without a prompt, or a git "
+                          f"credential helper. git said: {out.strip().splitlines()[-1][:200]}")
         log.warning("git push failed", state=self.state, error=self.error)
 
     async def purge_history(self) -> dict[str, Any]:
