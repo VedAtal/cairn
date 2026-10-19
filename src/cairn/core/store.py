@@ -249,6 +249,8 @@ class SqlStore:
         async with self.engine.begin() as conn:
             scope = await scope_for(conn, p)
             req = await self._paths(conn, scope, req)
+            # Exact quotas, and a retry that overlaps its first attempt waits for it here, then replays its result.
+            await write.lock_writer(conn, p.user_id)
             done = req.op_id and (await conn.execute(select(write_ops.c.result).where(
                 write_ops.c.user_id == p.user_id, write_ops.c.op_id == req.op_id))).scalar_one_or_none()
             if done:
@@ -453,8 +455,10 @@ class Federation:
             common_only |= res.common_only
         hits.sort(key=lambda pair: pair[0])
         found.sort(key=lambda pair: pair[0])
-        return SearchResponse(hits=[h for _, h in hits[: req.limit]], nodes=[n for _, n in found[:NODE_LIMIT]],
-                              common_only=common_only, unreachable=unreachable)
+        top = hits[0][1].features[0] if hits else 1  # each store compares its nodes with its own top hit only
+        nodes_out = [n for _, n in found if n.features[0] >= top][:NODE_LIMIT]
+        return SearchResponse(hits=[h for _, h in hits[: req.limit]], nodes=nodes_out, common_only=common_only,
+                              unreachable=unreachable)
 
     async def get(self, p: Principal, req: GetRequest) -> GetResponse:
         wanted = [_canonical(r) for r in req.refs]
@@ -466,7 +470,7 @@ class Federation:
         for alias, refs in by_store.items():
             try:
                 res = await self._pick(alias).get(p, GetRequest(refs=refs, history=req.history))
-                found |= {i.ref: i for i in res.items}
+                found |= dict(zip(refs, res.items, strict=False))  # by position: a path comes back as its canonical ref
             except RefError:
                 found |= {r: Item(ref=r, status="not_found") for r in refs}
             except (StoreUnavailable, RemoteError) as exc:

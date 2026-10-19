@@ -12,10 +12,11 @@ import pytest
 from sqlalchemy import make_url, select
 
 from cairn.core import admin, write
+from cairn.core.store import SqlStore
 from cairn.db import migrate
 from cairn.db.engine import make_engine
 from cairn.db.schema import entries, term_df, users
-from cairn.models import EntryFields, NodeFields
+from cairn.models import EntryFields, NodeFields, WriteRequest
 from tests.conftest import SETUP_TOKEN, Org, World, open_world, outcome
 
 
@@ -145,6 +146,19 @@ async def test_crossing_updates_do_not_deadlock(pgw: World, monkeypatch: pytest.
     )
     print("update a (quokka->walrus) || update b (walrus->quokka) ->", res)
     assert res == ["ok", "ok"]
+
+
+async def test_a_retry_overlapping_its_first_attempt_replays_it(pgw: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    org = await make_org(pgw)
+    store = SqlStore(pgw.store.engine, pgw.store.alias, write.WRITE_QUOTA)
+    title = "Refunds take ten days to settle"
+    req = WriteRequest(op="add", node=org.node, op_id="op-1", entry=EntryFields(type="gotcha", title=title))
+    slow(monkeypatch, write, "_log", 0.5, before=True)
+    res = await staggered(lambda: store.write(org.writer, req), lambda: store.write(org.writer, req))
+    async with pgw.store.engine.connect() as conn:
+        added = (await conn.execute(select(entries.c.id).where(entries.c.title == title))).all()
+    print("write || its retry ->", res, "| entries:", len(added))
+    assert res == ["ok", "ok"] and len(added) == 1
 
 
 async def test_bootstrap_creates_one_instance_admin(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -77,7 +77,8 @@ def proven_token(port: int, timeout: float = 2.0) -> str:
         raise CliError(f"the local Cairn server isn't answering on port {port}") from exc
     proof = body.get("proof") if status == 200 and isinstance(body, dict) else None
     # Another process could hold the port while Cairn is down; it must not learn the token.
-    if not hmac.compare_digest(str(proof), hmac.new(token.encode(), nonce.encode(), "sha256").hexdigest()):
+    expected = hmac.new(token.encode(), nonce.encode(), "sha256").hexdigest().encode()
+    if not hmac.compare_digest(str(proof).encode(), expected):  # bytes: a non-ASCII str would raise TypeError
         raise CliError(f"something other than this machine's Cairn answers on port {port}; not sending the token")
     return token
 

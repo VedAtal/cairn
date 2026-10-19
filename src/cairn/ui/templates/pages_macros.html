@@ -103,3 +103,9 @@
 <button class="secondary" hx-post="/ui/r/{{ item.ref }}/{{ 'unflag' if item.inject else 'flag' }}" hx-target="#msg">
   {{ "Unflag (stop injecting)" if item.inject else "Flag (inject into every session)" }}</button>
 {% endmacro %}
+
+{% macro purge_button(ref, node="") %}
+<div class="row"><button class="danger" hx-post="/ui/r/{{ ref }}/purge" hx-vals='{"node": "{{ node }}"}'
+  hx-confirm="Permanently delete this entry, its history and its links? Only for leaked secrets and legal requests."
+  hx-target="#msg">Purge</button></div>
+{% endmacro %}

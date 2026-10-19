@@ -154,7 +154,7 @@ All tables are defined once in SQLAlchemy Core.
 | `nodes` | id, uid, project_id, parent_id, slug, path, depth ≤ 8, title, summary ≤ 400, keywords ≤ 12, rev, inject, archived_at, archived_by, archive_reason, former_paths, an_* | ID is identity; `path` is a derived label. |
 | `entries` | id, uid, node_id, project_id (denormalized), type, title ≤ 160, body ≤ 2,000, keywords ≤ 8, rev, inject, origin `agent\|human`, created/updated/verified _by/_at, archived_at, archived_by, archive_reason, is_searchable, an_title, an_kw, an_body | One fact per row. The title states the claim. |
 | `entry_revisions` | entry_id, rev, full snapshot, by, at | History, undo, and optimistic locking (`base_revision`). |
-| `links` | from_ref, to_ref, reason | Cross-links. A reason is required. Writes add or re-reason links; only `unlink` removes one. Hidden unless the reader can see both ends and both are active. |
+| `links` | from_ref, to_ref, reason | Cross-links. A reason is required. Writes add or re-reason links; only `unlink` removes one. Adding fails past 10 links the writer can see; links they can't see are neither counted nor removable by them. Hidden unless the reader can see both ends and both are active. |
 | `term_df` | term, project_id, df | Document frequency per project, counting active entries only. |
 | `vocab` | term | Insert-only token list for substring expansion. Opaque `zz…` tokens are never inserted. |
 | `change_log` | seq, project_id, ref, op, by, at, summary | The feed that replaces v1's git-diff review. Filtered by `AccessScope`. |
@@ -198,7 +198,8 @@ Postgres not benchmarked), a path-range query took 0.03 ms and renaming a 1,254-
   - Removes the row, its revisions and its links, and updates `term_df`.
   - Writes `audit_log` and `change_log` rows.
   - The git mirror deletes the file in its next commit; history rewrite is `cairn git purge` (§11).
-  - Hosted data remains in the provider's backups until their retention expires.
+  - Hosted data remains in the provider's backups until their retention expires. Purged text can also linger in
+    free pages and old FTS5 segments of a local `cairn.db`, and in Postgres dead tuples until vacuum.
 
 ---
 
@@ -364,9 +365,9 @@ Next: get(refs=[…]) for the entries you need.
 Steps 2–6 run in one transaction (`BEGIN IMMEDIATE` on SQLite).
 
 0. **Quota and idempotency.**
-   - On a hosted store, lock the user's row and count their `change_log` rows in the last hour; at 500 the write
-     returns 429 `quota`.
+   - Lock the user's row, so a retry that overlaps its first attempt waits for it.
    - If `(user, op_id)` was already applied, return the stored result.
+   - On a hosted store, count the user's `change_log` rows in the last hour; at 500 the write returns 429 `quota`.
    - `RemoteStore` generates an `op_id` per proxied write and reuses it on its one retry. Results are kept for 24 h.
 1. **Normalize:** NFC, LF line endings, strip zero-width and bidi control characters, UTC millisecond timestamps.
 2. **Limits:**
@@ -638,8 +639,10 @@ the machine's own `mirror.git`.
 - Unit tests check `render(restore(render(DB))) == render(DB)`.
 
 **Leaked secrets:** rotate the secret, `admin purge_entry`, then `cairn git purge`. After a typed confirmation, it
-replaces the mirror's history with one commit of the current tree. It force-pushes that with a lease on the old head
-first, so a refused push changes nothing. The git host may keep old objects until it garbage-collects them.
+replaces the mirror's history with one commit of the current tree, and force-pushes that before moving the local
+branch, so a refused push changes nothing. It overwrites the remote only when the remote's head is a commit this
+machine has (its old history, or an interrupted purge's commit), so running it again finishes an interrupted purge.
+The git host may keep old objects until it garbage-collects them.
 
 **Remote safety:**
 
@@ -908,9 +911,10 @@ Superseded by your later decisions, where these reports differ:
 
 ## 19. Implementation status (2026-10-19)
 
-Built: everything in §3–§10 and §13 except the items below, about 5,700 lines of source (without migrations). Tests: unit, parity on
-SQLite and Postgres (the oracle is the two engines agreeing, plus golden expectations), and integration against the
-compose stack (hosted server on Postgres, MCP client, local federation, CLI). `make test-all` runs everything.
+Built: everything in §3–§10 and §13 except the items below, about 5,700 lines of source (without migrations).
+Tests: unit, parity on SQLite and Postgres (the oracle is the two engines agreeing, plus golden expectations), and
+integration against the compose stack (hosted server on Postgres, MCP client, local federation, CLI). `make test-all`
+runs everything.
 
 **Phase 2 so far:** the web UI with passwords (set-password links, no SMTP), `cairn ui` tickets, links and the
 graph view; git mode (§11, with the gaps it lists); write quotas and idempotency, the audit log, hourly

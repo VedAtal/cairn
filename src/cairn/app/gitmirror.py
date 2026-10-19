@@ -135,9 +135,10 @@ class GitMirror:
         log.warning("git push failed", state=self.state, error=self.error)
 
     async def purge_history(self) -> dict[str, Any]:
-        await self.push_now()
+        self.pending = bool(self.remote)
+        await self.sync()  # after an interrupted purge this push is rejected; the squash below finishes the job
         async with self._lock:
-            if self.state != "ok" or self.pending or not self.digest:
+            if self.state == "error" or self.error == FOREIGN or not self.digest:
                 raise WriteError(f"the mirror isn't in sync ({self.error or self.state}); fix that first")
             await asyncio.to_thread(self._squash)
         return self.status()
@@ -151,14 +152,23 @@ class GitMirror:
         if made.returncode:
             raise WriteError(made.stderr.decode()[:300])
         if self.remote:  # remote first, so a refused push leaves the local history as it was
-            pushed = self.git("push", "--porcelain", f"--force-with-lease=refs/heads/main:{old}", "origin",
-                              f"{new}:refs/heads/main", timeout=PUSH_TIMEOUT)
+            try:
+                listed = self.git("ls-remote", "origin", "refs/heads/main", timeout=PUSH_TIMEOUT)
+                theirs = listed.stdout.decode().split("\t")[0].strip()
+                # Overwrite only what this machine wrote: its old history, or an interrupted purge's commit.
+                if listed.returncode or (theirs and self.git("cat-file", "-e", f"{theirs}^{{commit}}").returncode):
+                    raise WriteError("the remote has commits this machine doesn't; nothing was rewritten")
+                pushed = self.git("push", "--porcelain", f"--force-with-lease=refs/heads/main:{theirs}", "origin",
+                                  f"{new}:refs/heads/main", timeout=PUSH_TIMEOUT)
+            except subprocess.TimeoutExpired as exc:
+                raise WriteError("the remote timed out; run cairn git purge again") from exc
             if pushed.returncode:
                 raise WriteError("the remote refused the rewrite: " + (pushed.stdout + pushed.stderr).decode()[-300:])
             self.last_push = _now()
-        self.git("update-ref", "refs/heads/main", new, old)
+        if self.git("update-ref", "refs/heads/main", new, old).returncode:
+            raise WriteError("couldn't move main to the rewritten history; run cairn git purge again")
         self.git("gc", "--prune=now", "--quiet")
-        self.last_commit = _now()
+        self.state, self.error, self.pending, self.last_commit = "ok", None, False, _now()
 
     async def push_now(self) -> dict[str, Any]:
         if self.state == "diverged":

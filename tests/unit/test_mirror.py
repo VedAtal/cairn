@@ -22,6 +22,7 @@ from cairn.cli.config import CliError
 from cairn.core import admin, mirror
 from cairn.core.access import Principal
 from cairn.core.store import SqlStore
+from cairn.core.write import WriteError
 from cairn.db import migrate
 from cairn.db.engine import make_engine
 from cairn.db.schema import entries, links, nodes, projects, teams, term_df
@@ -269,3 +270,57 @@ async def test_git_purge_rewrites_history_locally_and_remotely(org: Org, tmp_pat
     await org.w.add(org.writer, org.node, "A fact written after the purge")
     await m.sync()
     assert m.state == "ok" and git(remote, "rev-list", "--count", "main").strip() == "2"
+
+
+async def test_git_purge_after_a_restart_without_a_remote(org: Org, tmp_path: Path) -> None:
+    await seed(org)
+    m = GitMirror(tmp_path / "mirror.git", None, org.w.store.engine)
+    m.init()
+    leaked = await org.w.add(org.writer, org.node, "Quokkafoo signing uses a shared key")
+    await m.sync()
+    await org.w.admin(org.admin, "purge_entry", ref=leaked)
+    await m.sync()
+    restarted = GitMirror(m.repo, None, org.w.store.engine)  # nothing left to commit, so it stays idle
+    restarted.init()
+    await restarted.purge_history()
+    assert git(m.repo, "rev-list", "--count", "main").strip() == "1"
+    every_object = subprocess.run(["git", f"--git-dir={m.repo}", "cat-file", "--batch-all-objects", "--batch"],
+                                  capture_output=True, check=True).stdout
+    assert b"Quokkafoo" not in every_object
+
+
+async def test_an_interrupted_git_purge_finishes_on_the_next_run(org: Org, tmp_path: Path,
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    await seed(org)
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "--bare", "-q", "-b", "main", str(remote)], check=True)
+    m = GitMirror(tmp_path / "mirror.git", str(remote), org.w.store.engine)
+    m.init()
+    await m.sync()
+    await org.w.add(org.writer, org.node, "A second fact worth mirroring")
+    await m.sync()
+    real = m.git
+
+    def no_update_ref(*args: str, **kw: Any) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(args, 1, b"", b"") if args[0] == "update-ref" else real(*args, **kw)
+
+    monkeypatch.setattr(m, "git", no_update_ref)
+    with pytest.raises(WriteError, match="run cairn git purge again"):
+        await m.purge_history()
+    monkeypatch.setattr(m, "git", real)
+    assert git(remote, "rev-list", "--count", "main").strip() == "1"
+    assert git(m.repo, "rev-list", "--count", "main").strip() == "2"
+    await m.purge_history()
+    for repo in (m.repo, remote):
+        assert git(repo, "rev-list", "--count", "main").strip() == "1"
+    assert m.state == "ok" and not m.pending
+
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", str(remote), str(other)], check=True)
+    (other / "x.md").write_text("from another machine\n")
+    commit = ["-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qm", "other"]
+    for cmd in (["add", "x.md"], commit, ["push", "-q"]):
+        subprocess.run(["git", "-C", str(other), *cmd], check=True)
+    with pytest.raises(WriteError, match="commits this machine doesn't"):
+        await m.purge_history()
+    assert "x.md" in git(remote, "ls-tree", "-r", "--name-only", "main")

@@ -15,6 +15,7 @@
 {% elif "inside an archived node" in (item.tombstone or "") %}
 <p class="small muted">Unarchive the archived node above it to bring this back. <a href="/ui/archived">Archived items</a></p>
 {% endif %}
+{% if item.status == "archived" and admin and kind == "e" %}{{ m.purge_button(item.ref) }}{% endif %}
 <div id="msg"></div>
 
 {% else %}
@@ -54,11 +55,7 @@
     hx-target="#move" hx-trigger="click once">Move to another node</summary><div id="move"></div></details>
   {% endif %}
   {{ m.archive_form(item.ref) }}
-  {% if admin %}
-  <div class="row"><button class="danger" hx-post="/ui/r/{{ item.ref }}/purge" hx-vals='{"node": "{{ item.node_ref }}"}'
-    hx-confirm="Permanently delete this entry, its history and its links? Only for leaked secrets and legal requests."
-    hx-target="#msg">Purge</button></div>
-  {% endif %}
+  {% if admin %}{{ m.purge_button(item.ref, item.node_ref) }}{% endif %}
 </div>
 {% endif %}
 

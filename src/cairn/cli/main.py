@@ -125,8 +125,9 @@ def _unchanged_on_resume(given: dict[str, Any], text: str) -> bool:
     same = given.get("source") == "resume" and marker.exists() and marker.read_text() == digest
     write_private(marker, digest)
     for old in marker.parent.glob("session-*"):
-        if old.stat().st_mtime < time.time() - CACHE_MAX_AGE:
-            old.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):  # another hook may be cleaning up too
+            if old.stat().st_mtime < time.time() - CACHE_MAX_AGE:
+                old.unlink()
     return same
 
 

@@ -80,6 +80,29 @@ async def test_links_show_both_ways_and_respect_access(org: Org) -> None:
         links=[LinkIn(to=third, reason="refunds wait for settlement")], unlink=[org.node]))
     [item] = await w.get(org.reader, source)
     assert [link.ref for link in item.links] == [target, third] and item.rev == 1
+    await w.write(org.admin, "update", ref=source, base_revision=1, entry=EntryFields(
+        links=[LinkIn(to=hidden, reason="shares the rotation job")]))
+    await w.write(org.writer, "update", ref=source, base_revision=1, entry=EntryFields(unlink=[hidden]))
+    assert hidden in [link.ref for link in (await w.get(org.admin, source))[0].links]  # wes can't see it to unlink it
+
+
+async def test_link_cap_counts_the_links_the_writer_sees(org: Org) -> None:
+    w = org.w
+    secret = await w.project("eng", "secret", {})
+    hidden = [await w.node(org.admin, secret, f"n{i}") for i in range(10)]
+    entry = await w.add(org.writer, org.node, "Invoices are numbered per account")
+
+    async def link(p: Principal, to: str, reason: str = "shares the numbering") -> str:
+        return await outcome(w.write(p, "update", ref=entry, base_revision=1, entry=EntryFields(
+            links=[LinkIn(to=to, reason=reason)])))
+
+    for target in hidden:
+        assert await link(org.admin, target) == "ok"
+    assert await link(org.admin, org.node) == "invalid"
+    assert await link(org.writer, org.node) == "ok"  # wes sees none of the ten
+    assert len((await w.get(org.admin, entry))[0].links) == 11
+    assert await link(org.admin, org.node, "lives here") == "ok"  # re-reasoning past the cap still works
+    assert await link(org.admin, hidden[0], "rotates with it") == "ok"
 
 
 async def test_changes_archived_and_graph(org: Org) -> None:

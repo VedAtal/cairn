@@ -134,8 +134,8 @@ async def plan(conn: AsyncConnection, concepts: list[Concept], pids: list[int]) 
     # Postings, not matches: the index reads every token's list, even for alternatives that rarely match.
     common = sorted(((sum(df.get(t, 0) for t in v.tokens), i, v.raw) for i, c in enumerate(concepts)
                      for v in c.variants if v.raw in c.generic), reverse=True)
-    if common and not driving:
-        return True
+    if not driving:  # a concept that matches nothing can't be covered, so only an all-common query is AND mode
+        return all(c.generic for c in concepts)
     total = sum(n for n, _, _ in common)
     for n, i, raw in common:  # common variants still score in Python; they just stop driving the scan
         if total <= POSTINGS_BUDGET:

@@ -109,7 +109,7 @@ async def test_archive_shows_tombstone_then_unarchive(local_ui: UI) -> None:
     assert "Handlers must be idempotent" in (await ui.client.get(f"/ui/r/{entry}")).text
     assert (await post(ui, f"/ui/r/{billing}/archive")).status_code == 204
     inside = (await ui.client.get(f"/ui/r/{entry}")).text
-    assert "inside an archived node" in inside and "hx-post" not in inside
+    assert "inside an archived node" in inside and "/unarchive" not in inside
     assert "Unarchive" in (await ui.client.get(f"/ui/r/{billing}")).text
     missing = (await ui.client.get("/ui/r/me:e999")).text
     assert "Not found" in missing and "Unarchive" not in missing
@@ -247,3 +247,18 @@ async def test_untrusted_text_is_escaped(local_ui: UI) -> None:
             await api(ui, "write", op="archive", ref=billing, reason=evil)
         text = (await ui.client.get(url)).text
         assert "<img" not in text and "&lt;img" in text, url
+
+
+async def test_admins_purge_live_and_archived_entries(local_ui: UI) -> None:
+    ui = local_ui
+    billing = await node(ui, await personal(ui), "billing", "Billing service")
+    live = await add(ui, billing, "Invoices are generated nightly by a cron job")
+    archived = await add(ui, billing, "The old signing key was rotated in March")
+    await api(ui, "write", op="archive", ref=archived)
+    assert "Purge</button>" in (await ui.client.get(f"/ui/r/{live}")).text
+    assert "Purge</button>" in (await ui.client.get(f"/ui/r/{archived}")).text
+    done = await post(ui, f"/ui/r/{live}/purge", node=billing)
+    assert done.status_code == 204 and done.headers["HX-Redirect"] == f"/ui/r/{billing}"
+    assert (await post(ui, f"/ui/r/{archived}/purge", node="")).headers["HX-Redirect"] == "/ui"
+    got = (await api(ui, "get", refs=[live, archived]))["items"]
+    assert [i["status"] for i in got] == ["not_found", "not_found"]

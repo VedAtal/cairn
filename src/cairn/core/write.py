@@ -150,8 +150,11 @@ async def _log(conn: AsyncConnection, project_id: int, ref: str, op: str, user: 
                                                   summary=summary[:200]))
 
 
+async def lock_writer(conn: AsyncConnection, user_id: int) -> None:
+    await conn.execute(select(users.c.id).where(users.c.id == user_id).with_for_update())
+
+
 async def check_quota(conn: AsyncConnection, user_id: int, limit: int) -> None:
-    await conn.execute(select(users.c.id).where(users.c.id == user_id).with_for_update())  # exact under concurrency
     recent = (await conn.execute(select(func.count()).select_from(change_log).where(
         change_log.c.by == user_id, change_log.c.at > now() - timedelta(hours=1)))).scalar_one()
     if recent >= limit:
@@ -329,16 +332,21 @@ async def purge_entry(conn: AsyncConnection, scope: Scope, entry_id: int) -> Non
         await _apply_df(conn, entry.project_id, _delta(tokens, -1))
     await conn.execute(delete(links).where(((links.c.from_kind == "e") & (links.c.from_id == entry_id))
                                            | ((links.c.to_kind == "e") & (links.c.to_id == entry_id))))
+    for r in await conn.execute(select(entry_revisions).where(entry_revisions.c.entry_id == entry_id)):
+        tokens |= set(analyzed_text(r.title, *r.keywords, r.body).split())  # an edit leaves old words at df 0
     await conn.execute(delete(entry_revisions).where(entry_revisions.c.entry_id == entry_id))
     await _fts(conn, "entries", entry_id, None)
     await conn.execute(delete(entries).where(entries.c.id == entry_id))
     # Purges are for leaked secrets and legal requests, so drop the words that only this entry used.
-    await conn.execute(delete(term_df).where(term_df.c.term.in_(tokens), term_df.c.df <= 0))
-    await conn.execute(delete(vocab).where(vocab.c.term.in_(tokens),
-                                           ~select(term_df.c.term).where(term_df.c.term == vocab.c.term).exists()))
+    words = sorted(tokens)
+    for i in range(0, len(words), DF_CHUNK):
+        chunk = words[i : i + DF_CHUNK]
+        await conn.execute(delete(term_df).where(term_df.c.term.in_(chunk), term_df.c.df <= 0))
+        await conn.execute(delete(vocab).where(vocab.c.term.in_(chunk),
+                                               ~select(term_df.c.term).where(term_df.c.term == vocab.c.term).exists()))
     ref = f"e{entry_id}"
-    await conn.execute(update(change_log).where(change_log.c.project_id == entry.project_id, change_log.c.ref == ref)
-                       .values(summary="(purged)"))
+    # Any project: a moved entry's title is still in its old project's log.
+    await conn.execute(update(change_log).where(change_log.c.ref == ref).values(summary="(purged)"))
     await _log(conn, entry.project_id, ref, "purge", scope.principal.user_id, "(purged)")
 
 
@@ -521,8 +529,11 @@ async def set_links(conn: AsyncConnection, scope: Scope, kind: str, item_id: int
         return
     add, remove = new_links
     for to_kind, to_id in remove:
+        table = entries if to_kind == "e" else nodes
+        readable = select(table.c.id).where(table.c.id == to_id, table.c.project_id.in_(scope.readable))
         await conn.execute(delete(links).where(links.c.from_kind == kind, links.c.from_id == item_id,
-                                               links.c.to_kind == to_kind, links.c.to_id == to_id))
+                                               links.c.to_kind == to_kind, links.c.to_id.in_(readable)))
+    added = False
     for to_kind, to_id, raw_reason in add:
         reason = clean(raw_reason)
         if not reason or len(reason) > MAX_REASON:
@@ -541,7 +552,14 @@ async def set_links(conn: AsyncConnection, scope: Scope, kind: str, item_id: int
             await conn.execute(links.insert().values(project_id=project_id, from_kind=kind, from_id=item_id,
                                                      to_kind=to_kind, to_id=to_id, reason=reason,
                                                      created_by=scope.principal.user_id, created_at=now()))
-    total = (await conn.execute(select(func.count()).select_from(links).where(
-        links.c.from_kind == kind, links.c.from_id == item_id))).scalar_one()
-    if total > MAX_LINKS:
+            added = True
+    if not added:
+        return
+    shown = 0
+    for to_kind, table in (("e", entries), ("n", nodes)):  # hidden links don't count: the writer can't unlink them
+        shown += (await conn.execute(select(func.count()).select_from(links.join(table, table.c.id == links.c.to_id))
+                                     .where(links.c.from_kind == kind, links.c.from_id == item_id,
+                                            links.c.to_kind == to_kind, table.c.is_searchable,
+                                            table.c.project_id.in_(scope.readable)))).scalar_one()
+    if shown > MAX_LINKS:
         raise WriteError(f"at most {MAX_LINKS} links per item; unlink some first")

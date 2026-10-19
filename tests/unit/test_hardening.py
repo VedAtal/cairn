@@ -99,6 +99,28 @@ async def test_purge_removes_every_trace(org: Org) -> None:
     assert summaries == ["(purged)"] * len(summaries) and len(summaries) == 2
 
 
+async def test_purge_scrubs_the_log_of_a_project_the_entry_left(org: Org) -> None:
+    w = org.w
+    target = await w.node(org.admin, await w.project("eng", "ops"), "runbooks", "Runbooks", "On-call runbooks")
+    ref = await w.add(org.writer, org.node, "Quokkafoo signing uses a shared key")
+    await w.admin(org.admin, "move", ref=ref, node=target)
+    await w.admin(org.admin, "purge_entry", ref=ref)
+    async with w.store.engine.connect() as conn:
+        rows = (await conn.execute(select(change_log.c.project_id, change_log.c.summary).where(
+            change_log.c.ref == ref.split(":")[1]))).all()
+    assert len({r.project_id for r in rows}) == 2 and all(r.summary == "(purged)" for r in rows)
+
+
+async def test_purge_drops_words_only_an_earlier_revision_used(org: Org) -> None:
+    w = org.w
+    ref = await w.add(org.writer, org.node, "Zebrafoo tokens rotate weekly")
+    await w.write(org.writer, "update", ref=ref, base_revision=1, entry=EntryFields(title="Tokens rotate weekly"))
+    await w.admin(org.admin, "purge_entry", ref=ref)
+    async with w.store.engine.connect() as conn:
+        assert (await conn.execute(select(term_df).where(term_df.c.term == "zebrafoo"))).first() is None
+        assert (await conn.execute(select(vocab).where(vocab.c.term == "zebrafoo"))).first() is None
+
+
 async def test_maintenance_runs_once_an_hour_and_prunes(org: Org) -> None:
     engine = org.w.store.engine
     async with engine.begin() as conn:
@@ -143,7 +165,7 @@ def squatter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             nonce = self.path.split("nonce=")[1]
-            proof = hmac.new(answer["key"].encode(), nonce.encode(), "sha256").hexdigest()
+            proof = answer.get("proof") or hmac.new(answer["key"].encode(), nonce.encode(), "sha256").hexdigest()
             self.send_response(200)
             self.end_headers()
             self.wfile.write(json.dumps({"proof": proof}).encode())
@@ -161,6 +183,10 @@ def test_clients_send_the_token_only_to_a_proven_server(squatter: tuple[int, dic
     port, answer = squatter
     with pytest.raises(config.CliError, match="not sending the token"):
         config.proven_token(port)
+    answer["proof"] = "é"
+    with pytest.raises(config.CliError, match="not sending the token"):
+        config.proven_token(port)
+    del answer["proof"]
     answer["key"] = "the-token"
     assert config.proven_token(port) == "the-token"
 

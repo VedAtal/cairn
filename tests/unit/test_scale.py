@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from sqlalchemy import select
 
 from cairn.core import search
+from cairn.core.store import Federation, SqlStore
 from cairn.db.schema import links
-from cairn.models import EntryFields, LinkIn, SearchRequest
-from tests.conftest import Org, outcome
+from cairn.models import EntryFields, GetRequest, LinkIn, SearchRequest
+from tests.conftest import Org, open_world, outcome, sqlite_url
 from tests.unit.test_write import assert_index_exact
 
 
@@ -37,6 +40,7 @@ async def test_only_common_terms_must_all_match(org: Org, tiny_g: None) -> None:
     res = await w.store.search(org.reader, SearchRequest(concepts=["webhook", "retry"]))
     assert res.common_only and [h.ref for h in res.hits] == [both]
     assert not (await w.store.search(org.reader, SearchRequest(concepts=["webhook", "payload"]))).common_only
+    assert not (await w.store.search(org.reader, SearchRequest(concepts=["webhook", "xyzzy"]))).common_only
 
 
 async def test_nodes_match_on_their_own(org: Org) -> None:
@@ -51,12 +55,27 @@ async def test_nodes_match_on_their_own(org: Org) -> None:
     assert (await w.store.search(org.member, SearchRequest(concepts=["chargeback"]))).nodes == []
 
 
+async def test_federated_node_matches_cover_the_merged_top_hit(org: Org, tmp_path: Path) -> None:
+    await org.w.add(org.writer, org.node, "Stripe webhooks retry for three days")
+    (tmp_path / "me").mkdir()
+    async with open_world(sqlite_url(tmp_path / "me")) as local:
+        await local.admin(local.root, "create_team", slug="me")
+        await local.node(local.root, await local.project("me", "personal"), "stripe", "Stripe")
+        fed = Federation([SqlStore(local.store.engine, "me"), org.w.store])
+        alone = await fed.search(org.w.root, SearchRequest(concepts=["stripe", "retry"], stores=["me"]))
+        merged = await fed.search(org.w.root, SearchRequest(concepts=["stripe", "retry"]))
+    assert [n.ref for n in alone.nodes] == ["me:n1"]
+    assert merged.hits[0].features[0] == 2 and merged.nodes == []  # covers one concept, the top hit two
+
+
 async def test_path_refs_resolve_to_canonical_refs(org: Org) -> None:
     w = org.w
     child = await w.node(org.writer, org.node, "webhooks", "Webhooks")
     [node, project, missing] = await w.get(org.reader, "acme:eng/platform/billing/webhooks", "acme:eng/platform",
                                            "acme:eng/platform/nope")
     assert (node.ref, project.ref, missing.status) == (child, org.project, "not_found")
+    both = await Federation([w.store]).get(org.reader, GetRequest(refs=["acme:eng/platform/billing/webhooks", child]))
+    assert [(i.ref, i.status) for i in both.items] == [(child, "ok"), (child, "ok")]
     assert (await w.get(org.member, "acme:eng/platform"))[0].status == "not_found"
     added = await w.write(org.writer, "add", node="acme:eng/platform/billing", entry=EntryFields(
         type="gotcha", title="Webhook signatures expire after five minutes",
