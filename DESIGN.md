@@ -53,10 +53,10 @@ benchmarks are listed in §18.
 | Auth | Agents use **personal API keys** (bearer), which carry their owner's full powers, admin included. People use email + password; accounts are created by the instance admin. No SSO, no service accounts. MCP OAuth is deferred. |
 | Admin via MCP | Every admin action is available to agents through an `admin` tool. The agent must ask you first, and the harness always prompts for it. |
 | Harness permissions | `search`, `get`, `map` are auto-allowed. `write` **prompts** by default. `admin` always prompts. |
-| Harnesses | Claude Code and Codex, through a standards-compliant MCP server. |
+| Harnesses | Claude Code, Codex and Claude Desktop (macOS), through a standards-compliant MCP server. |
 | Remotes | At most one remote; v2.0 enforces this. |
 | Hierarchy | Nodes nest up to **8** levels. |
-| Install | **One command** installs the CLI and configures Claude Code and Codex. `cairn remote add` connects a remote later. Updates via `cairn upgrade`. |
+| Install | **One command** installs the CLI and configures Claude Code, Codex and Claude Desktop. `cairn remote add` connects a remote later. Updates via `cairn upgrade`. |
 | Mac app | A native Swift menu-bar app on your swift-app-kit, a pure and deletable interface over local and remote. **Last priority**: built after the core works. |
 
 ---
@@ -405,8 +405,8 @@ always win over a note.
 **Mechanism.** A SessionStart command hook runs `cairn inject` on `startup|resume|clear|compact|fork`, on both
 harnesses.
 
-- The `cairn` entry module imports only the standard library before dispatching `inject` and `auth header`, so it
-  starts in about 20 ms. An import test enforces this.
+- The `cairn` entry module imports only the standard library before dispatching `inject`, `auth header` and
+  `stdio`, so it starts in about 20 ms. An import test enforces this.
 - **Local only or both:** it calls the local server's `POST /api/v1/inject`. If the server is down, it starts it
   through the service and waits up to 3 s.
 - **Remote only:** it calls the remote directly with the stored API key.
@@ -512,6 +512,11 @@ match.
 - **Auth header helper.** The header comes from `headersHelper` (Claude Code) or `http_headers_helper` (Codex), which
   runs `cairn auth header`. Locally, the helper first starts the server if needed and verifies it with the
   hello-proof (§10.3).
+- **Claude Desktop** launches only stdio servers from its config, so it runs `cairn stdio`, a stdlib relay that POSTs
+  each message to `/mcp` (stateless JSON, so no session to carry). It resolves the server and token per message, so a
+  server restarted under a long-running Desktop is started and found again. Desktop has no hooks, so the relay
+  appends `cairn inject`'s context to the server instructions on `initialize`; Desktop initializes once per launch,
+  so the context is as fresh as the app.
 
 **`cairn local enable`** (or the installer's local option):
 
@@ -764,16 +769,16 @@ It does five things:
    fixed SQLite.
 2. Without flags, asks whether to set up local, remote or both. Each is opt-in.
 3. **Local:** `cairn local enable` (§10.1). **Remote:** `cairn remote add URL` (§10.4).
-4. Detects Claude Code and Codex and configures each, as in the table below.
+4. Detects Claude Code, Codex and Claude Desktop and configures each, as in the table below.
 5. Prints what it changed. `--dry-run` shows the diff first, a backup is kept, and `cairn uninstall` reverses it.
 
-| | Claude Code | Codex |
-|---|---|---|
-| MCP | HTTP server `cairn`, `headersHelper: cairn auth header`, server-level `alwaysLoad: true` | `[mcp_servers.cairn]`: `url`, `http_headers_helper`, `startup_timeout_sec = 20`, optional `required = true` |
-| Permissions | allow rules for `search`, `get`, `map` only; `write` prompts (the first prompt offers "always allow"); `admin` is never added | `approval_mode`: `auto` for reads (read-only tools pass), `prompt` for `write` and `admin` |
-| Startup injection | SessionStart command hook (exec form) → `cairn inject` | SessionStart hook → `cairn inject`; you approve it once in `/hooks` |
-| Pointer | one line in `~/.claude/CLAUDE.md`: search Cairn before non-trivial work | one line in `~/.codex/AGENTS.md` |
-| Wrap-up | `cairn-wrapup` skill | wrap-up skill |
+| | Claude Code | Codex | Claude Desktop |
+|---|---|---|---|
+| MCP | HTTP server `cairn`, `headersHelper: cairn auth header`, server-level `alwaysLoad: true` | `[mcp_servers.cairn]`: `url`, `http_headers_helper`, `startup_timeout_sec = 20`, optional `required = true` | `mcpServers.cairn` in `claude_desktop_config.json`: `cairn stdio --server URL` |
+| Permissions | allow rules for `search`, `get`, `map` only; `write` prompts (the first prompt offers "always allow"); `admin` is never added | `approval_mode`: `auto` for reads (read-only tools pass), `prompt` for `write` and `admin` | none: Desktop asks per tool |
+| Startup injection | SessionStart command hook (exec form) → `cairn inject` | SessionStart hook → `cairn inject`; you approve it once in `/hooks` | `cairn stdio` appends it to the server instructions |
+| Pointer | one line in `~/.claude/CLAUDE.md`: search Cairn before non-trivial work | one line in `~/.codex/AGENTS.md` | none |
+| Wrap-up | `cairn-wrapup` skill | wrap-up skill | none |
 
 All paths are absolute, because IDEs launched from the GUI often lack `~/.local/bin` on their PATH.
 

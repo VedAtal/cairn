@@ -1,4 +1,4 @@
-"""Stdlib only, so `cairn inject` and `cairn auth header` start fast."""
+"""Stdlib only, so `cairn inject`, `cairn auth header` and `cairn stdio` start fast."""
 
 from __future__ import annotations
 
@@ -51,25 +51,54 @@ def serve(host: str, port: int | None, local_mode: bool) -> None:
 
 
 def auth_header(server: str | None) -> None:
+    print(json.dumps({"Authorization": f"Bearer {_connection(server)[1]}"}))
+
+
+def stdio(server: str | None) -> None:
+    for line in sys.stdin.buffer:
+        if not line.strip():
+            continue
+        message = json.loads(line)
+        try:
+            # Per message, so a server restarted under a long-lived harness is started and found again.
+            base, token = _connection(server)
+            status, reply = fetch(f"{base}/mcp", message, token, timeout=30)
+        except (CliError, *NETWORK_ERRORS) as exc:
+            status, reply = 0, {"message": str(exc)}
+        if isinstance(reply, dict) and "jsonrpc" in reply:
+            if message.get("method") == "initialize" and "result" in reply:
+                _add_context(reply["result"])
+            print(json.dumps(reply), flush=True)
+        elif "id" in message:
+            error = {"code": -32603, "message": f"Cairn: {_message(status, reply)}"}
+            print(json.dumps({"jsonrpc": "2.0", "id": message["id"], "error": error}), flush=True)
+
+
+def _add_context(result: dict[str, Any]) -> None:
+    """Stdio harnesses have no startup hook, so the injected context rides on the server instructions."""
+    context: str = inject(8000, {})["hookSpecificOutput"]["additionalContext"]
+    if context:
+        result["instructions"] = f"{result.get('instructions') or ''}\n\n{context}".lstrip()
+
+
+def _connection(server: str | None) -> tuple[str, str]:
     if server and server.rstrip("/") != (current := harness.endpoint()):
         raise CliError(f"this harness is set up for {server}, but Cairn now serves {current}; run cairn setup")
     if port := local_port():
         with contextlib.suppress(CliError, OSError):
             local.ensure_running(port, 5.0)
-        token = proven_token(port)
-    elif found := remote():
-        token = found[1]
-    else:
-        raise CliError("Cairn is not configured; run cairn local enable or cairn remote add")
-    print(json.dumps({"Authorization": f"Bearer {token}"}))
+        return f"http://127.0.0.1:{port}", proven_token(port)
+    if found := remote():
+        return found
+    raise CliError("Cairn is not configured; run cairn local enable or cairn remote add")
 
 
-def inject(budget: int) -> dict[str, Any]:
+def inject(budget: int, given: dict[str, Any] | None = None) -> dict[str, Any]:
     """Never raises: a broken hook must not break the session."""
     deadline = time.monotonic() + 4.0
     cache = home() / "cache" / "inject.json"
     try:
-        given = _hook_input()
+        given = _hook_input() if given is None else given
         if port := local_port():
             local.ensure_running(port, min(3.0, deadline - time.monotonic()))
             base, token = f"http://127.0.0.1:{port}", proven_token(port, max(0.2, deadline - time.monotonic()))
@@ -263,6 +292,8 @@ def install(use_local: bool, url: str | None, key: str | None, service: bool) ->
         harness.setup("claude")
     if harness.codex_home().exists() or shutil.which("codex"):
         harness.setup("codex")
+    if harness.desktop_config().parent.exists():
+        harness.setup("claude-desktop")
 
 
 def _ask(prompt: str) -> str:
@@ -273,8 +304,8 @@ def _ask(prompt: str) -> str:
 
 
 def uninstall() -> None:
-    harness.setup("claude", uninstall=True)
-    harness.setup("codex", uninstall=True)
+    for name in harness.HARNESSES:
+        harness.setup(name, uninstall=True)
     local.stop()
     print(f"cairn: removed from harnesses; data kept in {home()}")
 
@@ -344,6 +375,10 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--server", help="the MCP endpoint this harness config was set up for")
     p.set_defaults(run=lambda a: auth_header(a.server))
 
+    p = sub.add_parser("stdio", help="relay MCP over stdio to Cairn, for harnesses that only launch stdio servers")
+    p.add_argument("--server", help="the MCP endpoint this harness config was set up for")
+    p.set_defaults(run=lambda a: stdio(a.server))
+
     p = sub.add_parser("inject", help="SessionStart hook: print the startup context")
     p.add_argument("--hook", choices=["claude-code", "codex"])
     p.add_argument("--budget", type=int, default=8000)
@@ -354,7 +389,7 @@ def _parser() -> argparse.ArgumentParser:
     p.set_defaults(run=lambda a: ui(a.remote))
 
     p = sub.add_parser("setup", help="connect a harness to Cairn")
-    p.add_argument("harness", choices=["claude", "codex"])
+    p.add_argument("harness", choices=list(harness.HARNESSES))
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--uninstall", action="store_true")
     p.add_argument("--allow-writes", action="store_true", help="let the agent write without prompting")

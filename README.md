@@ -44,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/VedAtal/cairn/main/install.sh | sh 
 # or, with uv:  uvx --from git+https://github.com/VedAtal/cairn cairn install [--local] [--remote URL]
 ```
 
-This installs the `cairn` CLI, sets up a local store and/or a remote, and configures Claude Code and Codex.
+This installs the `cairn` CLI, sets up a local store and/or a remote, and configures Claude Code, Codex and Claude Desktop.
 Update with `cairn upgrade`; undo with `cairn uninstall` (your data is kept).
 
 On a Mac, [Cairn for Mac](https://github.com/VedAtal/cairn-mac) adds a menu bar app that shows both stores and

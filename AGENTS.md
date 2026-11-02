@@ -41,4 +41,4 @@ Everything runs in Docker; the host needs no Python or uv. `make help` lists the
 - Same behavior everywhere: Postgres and SQLite, local and hosted, REST and MCP.
 - Every read and write goes through the access scope (`core/access.py`); unreadable things answer 404, not 403.
 - Schema changes go in `db/schema.py` plus an Alembic migration that is backward-compatible (add now, drop later).
-- `cairn inject` and `cairn auth header` must not import fastapi, sqlalchemy, pydantic, httpx or mcp.
+- `cairn inject`, `cairn auth header` and `cairn stdio` must not import fastapi, sqlalchemy, pydantic, httpx or mcp.

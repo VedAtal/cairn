@@ -15,10 +15,12 @@ from typing import Any
 
 import httpx
 import pytest
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 from cairn.core.inject import HEADER
 
-from .conftest import SERVER, Api, World, free_port, write_config
+from .conftest import SERVER, Api, World, email, free_port, write_config
 
 BIN = str(Path(shutil.which("cairn") or "cairn").resolve())
 POINTER = ("Before non-trivial work in an unfamiliar area, search Cairn (the cairn MCP search tool) for prior "
@@ -108,6 +110,18 @@ def test_auth_header(cli: Cli, world: World) -> None:
     assert (missing.returncode, missing.stdout) == (1, "") and missing.stderr
     cli.remote(world.bob, world)
     assert json.loads(cli("auth", "header").stdout) == {"Authorization": f"Bearer {world.bob}"}
+
+
+async def test_stdio_relay(cli: Cli, world: World, flagged: str) -> None:
+    cli.remote(world.bob, world)
+    env = {"HOME": str(cli.home), "CAIRN_HOME": str(cli.cairn)}
+    params = StdioServerParameters(command="cairn", args=["stdio"], env=env)
+    async with stdio_client(params) as streams, ClientSession(streams[0], streams[1]) as session:
+        instructions = (await session.initialize()).instructions or ""
+        assert instructions.startswith("Cairn is") and f"\n\n{HEADER}" in instructions and flagged in instructions
+        assert {t.name for t in (await session.list_tools()).tools} == {"search", "get", "map", "write", "admin"}
+        whoami = await session.call_tool("admin", {"op": "whoami"})
+    assert json.loads(whoami.content[0].text)["email"] == email("bob")  # type: ignore[union-attr]
 
 
 def test_local_enable_and_disable(cli: Cli) -> None:

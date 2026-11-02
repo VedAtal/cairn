@@ -18,13 +18,18 @@ MATCHER = "startup|resume|clear|compact|fork"
 READ_TOOLS = ["mcp__cairn__search", "mcp__cairn__get", "mcp__cairn__map"]
 WRITE_TOOL = "mcp__cairn__write"
 HINTS = {"claude": "cairn: start a new Claude Code session to load Cairn",
-         "codex": "cairn: open /hooks in codex and trust the cairn hook"}
+         "codex": "cairn: open /hooks in codex and trust the cairn hook",
+         "claude-desktop": "cairn: quit and reopen Claude Desktop to load Cairn"}
 
 Changes = dict[Path, str | None]
 
 
 def codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
+
+
+def desktop_config() -> Path:
+    return Path.home() / "Library/Application Support/Claude/claude_desktop_config.json"
 
 
 def endpoint() -> str:
@@ -37,7 +42,7 @@ def endpoint() -> str:
 
 def setup(harness: str, dry_run: bool = False, uninstall: bool = False, allow_writes: bool = False) -> None:
     url = None if uninstall else endpoint()
-    changes = (_claude if harness == "claude" else _codex)(cairn_bin(), url, allow_writes)
+    changes = HARNESSES[harness](cairn_bin(), url, allow_writes)
     for path, text in changes.items():
         old = path.read_text() if path.exists() else None
         if text == old:
@@ -68,6 +73,8 @@ def configured() -> list[list[str]]:
     toml = _read(codex_home() / "config.toml")
     if TOML_MARKERS[0] in toml:
         found.append(["codex", *(["--allow-writes"] if 'approval_mode = "approve"' in toml else [])])
+    if "cairn" in _load_json(desktop_config()).get("mcpServers", {}):
+        found.append(["claude-desktop"])
     return found
 
 
@@ -131,6 +138,18 @@ def _codex(cairn: str, url: str | None, writes: bool) -> Changes:
         Path.home() / ".agents/skills/cairn-wrapup/SKILL.md": _skill() if url else None,
         root / "AGENTS.md": _block(_read(root / "AGENTS.md"), MD_MARKERS, POINTER if url else None),
     }
+
+
+def _desktop(cairn: str, url: str | None, writes: bool) -> Changes:
+    path = desktop_config()
+    config = _load_json(path)
+    # Its config file launches only stdio servers; Desktop asks per tool, so there are no permissions to set.
+    _put(config, ["mcpServers", "cairn"], {"command": cairn, "args": ["stdio", "--server", url]} if url else None)
+    return {path: _dump_json(path, config)}
+
+
+HARNESSES: dict[str, Callable[[str, str | None, bool], Changes]] = {
+    "claude": _claude, "codex": _codex, "claude-desktop": _desktop}
 
 
 def _skill() -> str:

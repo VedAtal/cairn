@@ -100,7 +100,7 @@ def cairn_bin() -> str:
 def fetch(url: str, body: dict[str, Any] | None = None, token: str | None = None,
           timeout: float = 10.0) -> tuple[int, Any]:
     request = urllib.request.Request(url, None if body is None else json.dumps(body).encode(),
-                                     {"Content-Type": "application/json"})
+                                     {"Content-Type": "application/json", "Accept": "application/json"})
     if token:
         request.add_header("Authorization", f"Bearer {token}")
     # Bypass proxies for loopback: a corporate HTTP_PROXY would swallow local calls.

@@ -5,7 +5,9 @@ import os
 import plistlib
 import subprocess
 import sys
+import threading
 import tomllib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -207,6 +209,75 @@ def test_setup_codex(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert harness.configured() == []
 
 
+def test_setup_claude_desktop(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = harness.desktop_config()
+    original = json.dumps({"preferences": {"sidebarMode": "epitaxy"}, "mcpServers": {"other": {"command": "x"}}})
+    write_files({path: original})
+
+    harness.setup("claude-desktop", dry_run=True)
+    assert path.read_text() == original and capsys.readouterr().out == f"would update {path}\n"
+
+    harness.setup("claude-desktop")
+    assert "quit and reopen Claude Desktop" in capsys.readouterr().out
+    config_ = json.loads(path.read_text())
+    assert config_["preferences"] == {"sidebarMode": "epitaxy"} and "other" in config_["mcpServers"]
+    assert config_["mcpServers"]["cairn"] == {"command": BIN, "args": ["stdio", "--server", "http://127.0.0.1:6804/mcp"]}
+    assert harness.configured() == [["claude-desktop"]]
+
+    harness.setup("claude-desktop", uninstall=True)
+    assert json.loads(path.read_text()) == json.loads(original)
+    assert harness.configured() == []
+
+
+def test_stdio_relays_messages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[tuple[str | None, str | None]] = []
+
+    class Mcp(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            message = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append((self.headers["Authorization"], self.headers["Accept"]))
+            if self.path == "/api/v1/inject":
+                status, body = 200, {"text": "standing notes", "groups": []}
+            elif message["method"] == "initialize":
+                status, body = 200, {"jsonrpc": "2.0", "id": message["id"], "result": {"instructions": "guide"}}
+            elif message["method"] == "denied":
+                status, body = 401, {"code": "unauthorized", "message": "missing or invalid API key"}
+            elif "id" in message:
+                status, body = 200, {"jsonrpc": "2.0", "id": message["id"], "result": {"echo": message["method"]}}
+            else:
+                status, body = 202, None
+            raw = b"" if body is None else json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Mcp)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("CAIRN_HOME", str(tmp_path))
+    set_remote(f"http://127.0.0.1:{server.server_port}")
+    messages = [{"jsonrpc": "2.0", "id": 0, "method": "initialize"},
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                {"jsonrpc": "2.0", "method": "notifications/x"},
+                {"jsonrpc": "2.0", "id": "a", "method": "denied"}]
+    result = cli("stdio", cairn_home=tmp_path, stdin="\n".join(json.dumps(m) for m in messages) + "\n\n")
+    server.shutdown()
+    assert result.returncode == 0, result.stderr
+    assert [json.loads(line) for line in result.stdout.splitlines()] == [
+        {"jsonrpc": "2.0", "id": 0, "result": {"instructions": "guide\n\nstanding notes"}},
+        {"jsonrpc": "2.0", "id": 1, "result": {"echo": "tools/list"}},
+        {"jsonrpc": "2.0", "id": "a", "error": {"code": -32603, "message": "Cairn: missing or invalid API key"}}]
+    assert seen == [("Bearer k", "application/json")] * 5
+
+    set_remote()
+    down = cli("stdio", cairn_home=tmp_path, stdin=json.dumps(messages[1]) + "\n")
+    reply = json.loads(down.stdout)
+    assert reply["id"] == 1 and reply["error"]["message"].startswith("Cairn: ")
+
+
 def test_setup_endpoint_follows_mode(home: Path) -> None:
     assert harness.endpoint() == "http://127.0.0.1:6804/mcp"
     config.update_toml("config.toml", "local", {"enabled": False})
@@ -263,6 +334,7 @@ def test_fast_paths_do_not_import_server_stack(tmp_path: Path, monkeypatch: pyte
         "from cairn.cli.main import main\n"
         "with contextlib.redirect_stdout(io.StringIO()):\n"
         "    assert main(['inject', '--hook', 'claude-code']) == 0 and main(['auth', 'header']) == 0\n"
+        "    assert main(['stdio']) == 0\n"
         "print(sorted({m.split('.')[0] for m in sys.modules} & {'fastapi', 'sqlalchemy', 'pydantic', 'httpx', 'mcp'}))"
     )
     result = subprocess.run([sys.executable, "-c", code], input="", capture_output=True, text=True, timeout=30)
