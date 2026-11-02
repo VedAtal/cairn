@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from cairn.cli import config, harness, local
-from cairn.cli.main import main
+from cairn.cli.main import CONTEXT_TOOL, main
 
 BIN = "/opt/my tools/cairn"
 MATCHER = "startup|resume|clear|compact|fork"
@@ -230,20 +230,20 @@ def test_setup_claude_desktop(home: Path, capsys: pytest.CaptureFixture[str]) ->
 
 
 def test_stdio_relays_messages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[tuple[str | None, str | None]] = []
+    seen: list[tuple[str, str | None, str | None]] = []
 
     class Mcp(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             message = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            seen.append((self.headers["Authorization"], self.headers["Accept"]))
+            seen.append((self.path, self.headers["Authorization"], self.headers["Accept"]))
             if self.path == "/api/v1/inject":
                 status, body = 200, {"text": "standing notes", "groups": []}
             elif message["method"] == "initialize":
                 status, body = 200, {"jsonrpc": "2.0", "id": message["id"], "result": {"instructions": "guide"}}
+            elif message["method"] == "tools/list":
+                status, body = 200, {"jsonrpc": "2.0", "id": message["id"], "result": {"tools": [{"name": "search"}]}}
             elif message["method"] == "denied":
                 status, body = 401, {"code": "unauthorized", "message": "missing or invalid API key"}
-            elif "id" in message:
-                status, body = 200, {"jsonrpc": "2.0", "id": message["id"], "result": {"echo": message["method"]}}
             else:
                 status, body = 202, None
             raw = b"" if body is None else json.dumps(body).encode()
@@ -262,15 +262,18 @@ def test_stdio_relays_messages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     messages = [{"jsonrpc": "2.0", "id": 0, "method": "initialize"},
                 {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
                 {"jsonrpc": "2.0", "method": "notifications/x"},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "standing_instructions"}},
                 {"jsonrpc": "2.0", "id": "a", "method": "denied"}]
     result = cli("stdio", cairn_home=tmp_path, stdin="\n".join(json.dumps(m) for m in messages) + "\n\n")
     server.shutdown()
     assert result.returncode == 0, result.stderr
     assert [json.loads(line) for line in result.stdout.splitlines()] == [
         {"jsonrpc": "2.0", "id": 0, "result": {"instructions": "guide\n\nstanding notes"}},
-        {"jsonrpc": "2.0", "id": 1, "result": {"echo": "tools/list"}},
+        {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "search"}, CONTEXT_TOOL]}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "standing notes"}]}},
         {"jsonrpc": "2.0", "id": "a", "error": {"code": -32603, "message": "Cairn: missing or invalid API key"}}]
-    assert seen == [("Bearer k", "application/json")] * 5
+    paths = ["/mcp", "/api/v1/inject", "/mcp", "/mcp", "/api/v1/inject", "/mcp"]
+    assert seen == [(path, "Bearer k", "application/json") for path in paths]
 
     set_remote()
     down = cli("stdio", cairn_home=tmp_path, stdin=json.dumps(messages[1]) + "\n")

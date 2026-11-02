@@ -514,9 +514,11 @@ match.
   hello-proof (§10.3).
 - **Claude Desktop** launches only stdio servers from its config, so it runs `cairn stdio`, a stdlib relay that POSTs
   each message to `/mcp` (stateless JSON, so no session to carry). It resolves the server and token per message, so a
-  server restarted under a long-running Desktop is started and found again. Desktop has no hooks, so the relay
-  appends `cairn inject`'s context to the server instructions on `initialize`; Desktop initializes once per launch,
-  so the context is as fresh as the app.
+  server restarted under a long-running Desktop is started and found again.
+- **Startup context without hooks.** claude.ai chat in Desktop ignores server instructions and lists deferred tools
+  by their first sentence (checked 2026-11-02). So the relay adds a `standing_instructions` tool, answered locally
+  from `cairn inject`, whose first sentence says to call it before the first reply. It also appends the same context
+  to the server instructions on `initialize`, for stdio clients that honor them; the tool says to skip itself then.
 
 **`cairn local enable`** (or the installer's local option):
 
@@ -776,7 +778,7 @@ It does five things:
 |---|---|---|---|
 | MCP | HTTP server `cairn`, `headersHelper: cairn auth header`, server-level `alwaysLoad: true` | `[mcp_servers.cairn]`: `url`, `http_headers_helper`, `startup_timeout_sec = 20`, optional `required = true` | `mcpServers.cairn` in `claude_desktop_config.json`: `cairn stdio --server URL` |
 | Permissions | allow rules for `search`, `get`, `map` only; `write` prompts (the first prompt offers "always allow"); `admin` is never added | `approval_mode`: `auto` for reads (read-only tools pass), `prompt` for `write` and `admin` | none: Desktop asks per tool |
-| Startup injection | SessionStart command hook (exec form) → `cairn inject` | SessionStart hook → `cairn inject`; you approve it once in `/hooks` | `cairn stdio` appends it to the server instructions |
+| Startup injection | SessionStart command hook (exec form) → `cairn inject` | SessionStart hook → `cairn inject`; you approve it once in `/hooks` | `standing_instructions` tool added by `cairn stdio`, plus the server instructions |
 | Pointer | one line in `~/.claude/CLAUDE.md`: search Cairn before non-trivial work | one line in `~/.codex/AGENTS.md` | none |
 | Wrap-up | `cairn-wrapup` skill | wrap-up skill | none |
 

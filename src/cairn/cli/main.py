@@ -33,6 +33,15 @@ from .config import (
 )
 
 CACHE_MAX_AGE = 7 * 86400
+# For claude.ai chat, which ignores server instructions and shows deferred tools by their first sentence.
+CONTEXT_TOOL = {
+    "name": "standing_instructions",
+    "description": ("Call this before your first reply in every conversation, unless your context already has "
+                    "\"Standing instructions from Cairn\": it returns the user's standing instructions (who they "
+                    "are and how to work with them)."),
+    "inputSchema": {"type": "object", "properties": {}},
+    "annotations": {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False},
+}
 SOURCE = "git+https://github.com/VedAtal/cairn"  # not on PyPI
 # Tool installs ignore the lockfile and [tool.uv], so pin Python and the 7-day buffer.
 UV_TOOL_FLAGS = ["--managed-python", "--python", "3.14", "--exclude-newer", "7 days"]
@@ -59,6 +68,12 @@ def stdio(server: str | None) -> None:
         if not line.strip():
             continue
         message = json.loads(line)
+        method = message.get("method")
+        if method == "tools/call" and (message.get("params") or {}).get("name") == CONTEXT_TOOL["name"]:
+            hook = inject(8000, {})
+            text = hook["hookSpecificOutput"]["additionalContext"] or hook.get("systemMessage") or "None are flagged."
+            _send({"jsonrpc": "2.0", "id": message["id"], "result": {"content": [{"type": "text", "text": text}]}})
+            continue
         try:
             # Per message, so a server restarted under a long-lived harness is started and found again.
             base, token = _connection(server)
@@ -66,19 +81,21 @@ def stdio(server: str | None) -> None:
         except (CliError, *NETWORK_ERRORS) as exc:
             status, reply = 0, {"message": str(exc)}
         if isinstance(reply, dict) and "jsonrpc" in reply:
-            if message.get("method") == "initialize" and "result" in reply:
-                _add_context(reply["result"])
-            print(json.dumps(reply), flush=True)
+            if method == "initialize" and "result" in reply:
+                # Stdio harnesses have no startup hook.
+                if context := inject(8000, {})["hookSpecificOutput"]["additionalContext"]:
+                    guide = reply["result"].get("instructions") or ""
+                    reply["result"]["instructions"] = f"{guide}\n\n{context}".lstrip()
+            elif method == "tools/list" and "result" in reply:
+                reply["result"]["tools"] = [*reply["result"].get("tools", []), CONTEXT_TOOL]
+            _send(reply)
         elif "id" in message:
-            error = {"code": -32603, "message": f"Cairn: {_message(status, reply)}"}
-            print(json.dumps({"jsonrpc": "2.0", "id": message["id"], "error": error}), flush=True)
+            _send({"jsonrpc": "2.0", "id": message["id"],
+                   "error": {"code": -32603, "message": f"Cairn: {_message(status, reply)}"}})
 
 
-def _add_context(result: dict[str, Any]) -> None:
-    """Stdio harnesses have no startup hook, so the injected context rides on the server instructions."""
-    context: str = inject(8000, {})["hookSpecificOutput"]["additionalContext"]
-    if context:
-        result["instructions"] = f"{result.get('instructions') or ''}\n\n{context}".lstrip()
+def _send(message: dict[str, Any]) -> None:
+    print(json.dumps(message), flush=True)
 
 
 def _connection(server: str | None) -> tuple[str, str]:

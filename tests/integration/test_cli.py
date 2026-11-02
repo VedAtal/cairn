@@ -119,9 +119,13 @@ async def test_stdio_relay(cli: Cli, world: World, flagged: str) -> None:
     async with stdio_client(params) as streams, ClientSession(streams[0], streams[1]) as session:
         instructions = (await session.initialize()).instructions or ""
         assert instructions.startswith("Cairn is") and f"\n\n{HEADER}" in instructions and flagged in instructions
-        assert {t.name for t in (await session.list_tools()).tools} == {"search", "get", "map", "write", "admin"}
+        names = {t.name for t in (await session.list_tools()).tools}
+        assert names == {"search", "get", "map", "write", "admin", "standing_instructions"}
         whoami = await session.call_tool("admin", {"op": "whoami"})
+        standing = await session.call_tool("standing_instructions", {})
     assert json.loads(whoami.content[0].text)["email"] == email("bob")  # type: ignore[union-attr]
+    text = standing.content[0].text  # type: ignore[union-attr]
+    assert text.startswith(HEADER) and flagged in text
 
 
 def test_local_enable_and_disable(cli: Cli) -> None:
