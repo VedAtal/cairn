@@ -11,7 +11,8 @@ from typing import Any
 from .config import CliError, cairn_bin, local_port, remote, toml_value
 
 POINTER = ("Before non-trivial work in an unfamiliar area, search Cairn (the cairn MCP search tool) for prior "
-           "decisions and gotchas; cite refs you use.")
+           "decisions and gotchas; cite refs you use. Save durable knowledge to Cairn (the cairn MCP write tool), "
+           "not to local memory files.")
 MD_MARKERS = ("<!-- cairn:begin -->", "<!-- cairn:end -->")
 TOML_MARKERS = ("# >>> cairn (managed by cairn setup codex)", "# <<< cairn")
 MATCHER = "startup|resume|clear|compact|fork"

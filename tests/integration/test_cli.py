@@ -24,7 +24,8 @@ from .conftest import SERVER, Api, World, email, free_port, write_config
 
 BIN = str(Path(shutil.which("cairn") or "cairn").resolve())
 POINTER = ("Before non-trivial work in an unfamiliar area, search Cairn (the cairn MCP search tool) for prior "
-           "decisions and gotchas; cite refs you use.")
+           "decisions and gotchas; cite refs you use. Save durable knowledge to Cairn (the cairn MCP write tool), "
+           "not to local memory files.")
 MATCHER = "startup|resume|clear|compact|fork"
 BEGIN, END = "# >>> cairn (managed by cairn setup codex)", "# <<< cairn"
 
