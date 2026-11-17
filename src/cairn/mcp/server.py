@@ -42,7 +42,7 @@ in code or docs: state the fact there. An old verified date marks a lead to chec
 Writing (write tool)
 - Save what you learn here, not in the harness's local memory files, if it is transferable (helps a different task), \
 non-recoverable (not in code, git or the ticket) and durable (true in six months).
-- One fact per entry. The title states it; the body is one to three sentences, about 600-1500 characters, on why it \
+- One fact per entry. The title states it; the body is one to three sentences, at most 1,500 characters, on why it \
 holds and what to do. Keywords: words the title lacks. No secrets: the server rejects them.
 - Create nodes freely: they give the store its structure. When no node fits, create one (named for its area, with a \
 summary of what belongs in it) instead of stretching the nearest. Each substantial part of a large project gets its \

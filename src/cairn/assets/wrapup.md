@@ -16,7 +16,7 @@ session summary.
    - durable: it will still be true in six months.
    If none qualify, say "nothing met the bar" and stop.
 3. One fact per entry. The title states the claim; the body says why it holds and what to do in one to three
-   sentences, about 600-1500 characters. More than that is a second fact: give it its own entry. Write invariants,
+   sentences, at most 1,500 characters. More than that is a second fact: give it its own entry. Write invariants,
    not current values; if a value is the point, mark it "as of YYYY-MM".
 4. Search Cairn for each one's concepts. If an entry already covers it, `update` or `verify` that entry instead of
    adding a new one. When a fact changed, update every entry that states it.
