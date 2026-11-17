@@ -45,10 +45,10 @@ async def found(w: World, org: Org, ref: str, *concepts: str) -> bool:
 
 
 @pytest.mark.parametrize(("fields", "result"), [
-    ({"title": "t" * 160, "body": "b" * 2000, "keywords": [f"k{i}" for i in range(8)]}, "ok"),
+    ({"title": "t" * 160, "body": "b" * 1500, "keywords": [f"k{i}" for i in range(8)]}, "ok"),
     ({"title": "é" * 160}, "ok"),  # limits count code points after NFC
     ({"title": "t" * 161}, "invalid"),
-    ({"title": "fine", "body": "b" * 2001}, "invalid"),
+    ({"title": "fine", "body": "b" * 1501}, "invalid"),
     ({"title": "fine", "keywords": [f"k{i}" for i in range(9)]}, "invalid"),
     ({"title": "  ​ "}, "invalid"),  # empty once invisible characters are stripped
 ])

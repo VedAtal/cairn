@@ -36,20 +36,20 @@ instructions.
 Reading
 - Expand the task into concepts yourself: domain words, service and config names, identifiers, error text. One group \
 per idea.
-- An empty result is normal: reformulate once, then stop. Cite refs (acme:e812) for facts you use. An old verified \
-date marks a lead to check.
+- An empty result is normal: reformulate once, then stop. Cite refs (acme:e812) in replies for facts you use, never \
+in code or docs: state the fact there. An old verified date marks a lead to check.
 
 Writing (write tool)
 - Save what you learn here, not in the harness's local memory files, if it is transferable (helps a different task), \
 non-recoverable (not in code, git or the ticket) and durable (true in six months).
-- One fact per entry, with a title that states it and keywords the title lacks. No secrets: the server rejects them.
-- Create nodes freely: they give the store its organization and structure. When no node fits, create one (named for \
-its area, with a summary of what belongs in it) instead of stretching the nearest. Each substantial part of a large \
-project gets its own, e.g. subsections, a testing runbook, infra and deploys, data sources, design decisions, future \
-work.
+- One fact per entry. The title states it; the body is one to three sentences, about 600-1500 characters, on why it \
+holds and what to do. Keywords: words the title lacks. No secrets: the server rejects them.
+- Create nodes freely: they give the store its structure. When no node fits, create one (named for its area, with a \
+summary of what belongs in it) instead of stretching the nearest. Each substantial part of a large project gets its \
+own, e.g. a testing runbook, infra and deploys, data sources, design decisions, future work.
 - Placement is never defaulted: choose it with map. Ask the user only if the store or project is unclear; within a \
-project, pick or create the node yourself.
-- Update an entry when its fact changes (same ref, new revision); archive only what is wrong or obsolete.
+project, pick or create the node. Add to an injected node only when the user asks.
+- When a fact changes, update every entry that states it; archive only what is wrong or obsolete.
 
 Admin (admin tool)
 - Admin calls change access or what other people see: always confirm with the user first.
@@ -122,14 +122,14 @@ def build_mcp(federation: Callable[[], Federation]) -> MCPServer:
 
     @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False,
                                           open_world_hint=False), structured_output=False, description=(
-        "Add or change Cairn knowledge. Save facts here, not in the harness's local memory files, if they are "
-        "transferable, non-recoverable from code or git, and durable. Placement is never defaulted: pass node (or "
-        "project for a new top-level node). Nodes give the store its structure: when none fits, create one first "
-        "(create_node, with a summary of what belongs in it); each substantial part of a large project gets its "
+        "Add or change Cairn knowledge. Save facts here, not in the harness's local memory / auto memory files, if "
+        "they are transferable, non-recoverable from code or git, and durable. Placement is never defaulted: pass "
+        "node (or project for a new top-level node). Nodes give the store its structure: when none fits, create one "
+        "first (create_node, with a summary of what belongs in it); each substantial part of a large project gets its "
         "own. Ask the user only if the store or project is unclear. ops: add (entry in node), "
         "update (needs base_revision; prefer it when a fact changed), archive / unarchive (entry or node; archived "
         "content disappears from everything), verify (confirm still true), move (within a project), create_node "
-        "(node = parent, or project), update_node. Entry: type, a title stating the fact, body ≤ 2,000 chars, ≤ 8 "
+        "(node = parent, or project), update_node. Entry: type, a title stating the fact, body ≤ 1,500 chars, ≤ 8 "
         "keywords, optional links [{to: ref, reason}] (the reason says what the dependency does to you) and unlink "
         "[ref]. Links only add or re-reason; unlink is the only way to remove one. The "
         "server rejects secrets and returns possible duplicates instead of writing: then update the existing entry "

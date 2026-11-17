@@ -18,7 +18,7 @@ from .access import AccessError, NotFound, Scope, inject_locked
 from .analyzer import analyze, analyzed_text, is_opaque
 from .search import candidates, doc_frequencies, token_concepts
 
-MAX_TITLE, MAX_BODY, MAX_KEYWORDS, MAX_SUMMARY, MAX_NODE_KEYWORDS, MAX_DEPTH = 160, 2000, 8, 400, 12, 8
+MAX_TITLE, MAX_BODY, MAX_KEYWORDS, MAX_SUMMARY, MAX_NODE_KEYWORDS, MAX_DEPTH = 160, 1500, 8, 400, 12, 8
 MAX_LINKS, MAX_REASON = 10, 200
 type Links = tuple[list[tuple[str, int, str]], list[tuple[str, int]]] | None
 DUP_THRESHOLD = 0.6
@@ -91,8 +91,10 @@ def validate_entry(fields: EntryFields, current: dict[str, Any] | None = None) -
         raise WriteError(f"type must be one of {', '.join(ENTRY_TYPES)}")
     if not title:
         raise WriteError("title is required: one line stating the fact")
-    if len(title) > MAX_TITLE or len(body) > MAX_BODY:
-        raise WriteError(f"title must be ≤ {MAX_TITLE} characters and body ≤ {MAX_BODY}; write one fact per entry")
+    # A body written under an earlier, larger limit stays editable until it is rewritten.
+    if len(title) > MAX_TITLE or (fields.body is not None and len(body) > MAX_BODY):
+        raise WriteError(f"title must be ≤ {MAX_TITLE} characters and body ≤ {MAX_BODY}: one fact per entry, in one "
+                         "to three sentences")
     keywords = _keywords(merged.get("keywords") or [], MAX_KEYWORDS)
     title_words = set(analyze(title))
     keywords = [k for k in keywords if not set(analyze(k)) <= title_words]
